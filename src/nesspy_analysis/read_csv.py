@@ -3,11 +3,16 @@ import pandas as pd
 import numpy as np
 
 
-def get_data_point_from_out_file(file: Path) -> pd.DataFrame:
+def get_data_point_from_out_file(file: Path, n_samples: int, bootstrap: bool=True) -> pd.DataFrame:
 
     df = pd.read_csv(file, comment="#", header=0)
     df = df.apply(pd.to_numeric, errors="coerce")
     df = df.dropna(how="all")
+
+    if bootstrap:
+        df = df.sample(n_samples, random_state=np.random.randint(0, 10000), replace=True)
+    else:
+        pass
 
     delta_f_value = df["fres"].mean()
     rate_constant = df["k"].mean()
@@ -22,6 +27,12 @@ def get_data_point_from_out_file(file: Path) -> pd.DataFrame:
     mu = df["mu"].mean()
     time_elapsed_average = df["gspeed"].mean()
     time_elapsed_delta = df["gspeed"].sem()
+
+    # Calculate susceptibility
+
+    # susc_rows = df["msquared"] - df["m"]**2
+    # susc_error = susc_rows.sem()
+    # print(susc_error)
 
     susc = m2_average - m_average**2
 
@@ -41,6 +52,7 @@ def get_data_point_from_out_file(file: Path) -> pd.DataFrame:
         "dm2": m2_delta,
         "dmu": dmu,
         "susc": susc,
+        # "susc_delta": susc_error,
     }
     out = pd.DataFrame(dic, index=[0])
     return out
@@ -99,7 +111,7 @@ def get_k(file: Path) -> float:
     return None
 
 
-def read_csv(file: Path) -> tuple[pd.DataFrame, dict]:
+def read_csv(file: Path, n_samples: int=6, bootstrap: bool=True) -> tuple[pd.DataFrame, dict]:
     if not file.exists():
         raise ValueError(f"File {file} does not exist.")
 
@@ -113,7 +125,10 @@ def read_csv(file: Path) -> tuple[pd.DataFrame, dict]:
 
     # Read the CSV file into a DataFrame
 
-    data_points = get_data_point_from_out_file(file)
+
+    data_points = get_data_point_from_out_file(file, n_samples, bootstrap=bootstrap)
+    
+
 
     data_points['growth_speed'] = (1./data_points['t'])*0.5*lattice[0]
 

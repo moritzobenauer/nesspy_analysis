@@ -1,0 +1,136 @@
+from pathlib import Path
+import src.nesspy_analysis as npa
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import json
+
+if __name__ == "__main__":
+    # base_path = Path("/Volumes/2025/100x400_EFF_3S_GROWTH")
+    name = "test"
+    base_path = Path("/Volumes/2025/smatch_2025/different_dfs/SL_F4_D0_K0_GROWTH")
+    data = pd.DataFrame()
+    files, csv_file_number = npa.iterdirs(base_path)
+    # Bootstrapping to estimate errors
+
+    bootstrap_runs = 16
+    bootstrap_results = {'v_c': [], 'gamma_v_c': [], 'A_v_c': []}
+
+    for i in range(bootstrap_runs):
+        for f in files:
+            df, header = npa.read_csv(f, n_samples=6)
+            data = pd.concat([data, df], ignore_index=True)
+        data = data.sort_values(by=["mu"])
+        color = plt.cm.tab10(0)
+        speed_cont = np.linspace(data['growth_speed'].min(), data['growth_speed'].max(), 5000)
+        mu_cont = np.linspace(data['mu'].min(), data['mu'].max(), 5000)
+        plt.scatter(data['growth_speed'], data['susc'], label='derivative', color='red')
+        popt = npa.fit_lorentzian(data['growth_speed'], data['susc'])
+        x0, gamma, A = popt
+        bootstrap_results['v_c'].append(x0)
+        bootstrap_results['gamma_v_c'].append(gamma)
+        bootstrap_results['A_v_c'].append(A)
+        
+        
+        plt.xscale('log')
+
+        # plt.errorbar(data['mu'], data['susc'], yerr=data['susc_delta'], label='derivative', color=color,
+                    # fmt='o', markersize=4, capsize=2)
+        popt = npa.fit_lorentzian(data['mu'], data['susc'])
+        x0, gamma, A = popt
+        lorentzian_fit = npa.lorentzian(mu_cont, x0, gamma, A)
+        # plt.plot(mu_cont, lorentzian_fit, label='100', color=color)
+
+    v_c_mean = np.mean(bootstrap_results['v_c'])
+    v_c_std = np.std(bootstrap_results['v_c'])
+    gamma_v_c_mean = np.mean(bootstrap_results['gamma_v_c'])
+    gamma_v_c_std = np.std(bootstrap_results['gamma_v_c'])
+    A_v_c_mean = np.mean(bootstrap_results['A_v_c'])
+    A_v_c_std = np.std(bootstrap_results['A_v_c'])
+
+    lorentzian_fit = npa.lorentzian(speed_cont, v_c_mean, gamma_v_c_mean, A_v_c_mean)
+    plt.plot(speed_cont, lorentzian_fit, label='100', color=color)
+
+
+
+    cont_res = np.array([mu_cont, lorentzian_fit]).T
+
+    print('Peak Position (x0):', x0)
+    print('Width (gamma):', gamma)
+
+    out_folder = base_path / "npa"
+    out_folder.mkdir(exist_ok=True)
+    with open(out_folder / f"{name}_lorentzian_fit_params.json", 'w') as f:
+        json.dump({'x0': x0, 'gamma': gamma, 'A': A}, f, indent=4)
+    
+    data.to_csv(out_folder / f"{name}_processed_data.csv", index=False)
+    np.savetxt(out_folder /  f"{name}_lorentzian_fit_curve.csv", cont_res, delimiter=',', header='mu,lorentzian_fit', comments='')
+
+    plt.show()
+
+    # base_path = Path("/Volumes/2025/80x320_EFF_3S_GROWTH")
+    # data = pd.DataFrame()
+    # files, csv_file_number = npa.iterdirs(base_path)
+    # for f in files:
+    #     df, header = npa.read_csv(f)
+    #     data = pd.concat([data, df], ignore_index=True)
+    # data = data.sort_values(by=["mu"])
+    # # print(data)
+    # color = plt.cm.tab10(1)
+    # speed_cont = np.linspace(data['growth_speed'].min(), data['growth_speed'].max(), 5000)
+    # mu_cont = np.linspace(data['mu'].min(), data['mu'].max(), 5000)
+    # # plt.scatter(data['growth_speed'], data['susc'], label='derivative', color='red')
+    # plt.scatter(data['mu'], data['susc'], label='derivative', color=color)
+    # popt, pcov = npa.fit_lorentzian(data['mu'], data['susc'])
+    # x0, gamma, A = popt
+    # lorentzian_fit = npa.lorentzian(mu_cont, x0, gamma, A)
+    # plt.plot(mu_cont, lorentzian_fit, label='80', color=color)
+    # print('Peak Position (x0):', x0)
+    # print('Width (gamma):', gamma)
+
+    # base_path = Path("/Volumes/2025/40x160_EFF_3S_GROWTH")
+    # data = pd.DataFrame()
+    # files, csv_file_number = npa.iterdirs(base_path)
+    # for f in files:
+    #     df, header = npa.read_csv(f)
+    #     data = pd.concat([data, df], ignore_index=True)
+    # data = data.sort_values(by=["mu"])
+    # # print(data)
+    # color = plt.cm.tab10(2)
+    # speed_cont = np.linspace(data['growth_speed'].min(), data['growth_speed'].max(), 5000)
+    # mu_cont = np.linspace(data['mu'].min(), data['mu'].max(), 5000)
+    # # plt.scatter(data['growth_speed'], data['susc'], label='derivative', color='red')
+    # plt.scatter(data['mu'], data['susc'], label='derivative', color=color)
+    # popt, pcov = npa.fit_lorentzian(data['mu'], data['susc'])
+    # x0, gamma, A = popt
+    # lorentzian_fit = npa.lorentzian(mu_cont, x0, gamma, A)
+    # plt.plot(mu_cont, lorentzian_fit, label='40', color=color)
+    # print('Peak Position (x0):', x0)
+    # print('Width (gamma):', gamma)
+
+    # base_path = Path("/Volumes/2025/30x120_EFF_3S_GROWTH")
+    # data = pd.DataFrame()
+    # files, csv_file_number = npa.iterdirs(base_path)
+    # for f in files:
+    #     df, header = npa.read_csv(f)
+    #     data = pd.concat([data, df], ignore_index=True)
+    # data = data.sort_values(by=["mu"])
+    # # print(data)
+    # color = plt.cm.tab10(3)
+    # speed_cont = np.linspace(data['growth_speed'].min(), data['growth_speed'].max(), 5000)
+    # mu_cont = np.linspace(data['mu'].min(), data['mu'].max(), 5000)
+    # # plt.scatter(data['growth_speed'], data['susc'], label='derivative', color='red')
+    # plt.scatter(data['mu'], data['susc'], label='derivative', color=color)
+    # popt, pcov = npa.fit_lorentzian(data['mu'], data['susc'])
+    # x0, gamma, A = popt
+    # lorentzian_fit = npa.lorentzian(mu_cont, x0, gamma, A)
+    # plt.plot(mu_cont, lorentzian_fit, label='30', color=color)
+    # print('Peak Position (x0):', x0)
+    # print('Width (gamma):', gamma)
+
+    # plt.legend()
+
+
+
+    # plt.xscale('log')
+    plt.show()
