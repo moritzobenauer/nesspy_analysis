@@ -7,25 +7,26 @@ import numpy as np
 from scipy.stats import sem
 import json
 
+from dataclasses import dataclass
 
 
+@dataclass(frozen=True, kw_only=True)
 class Thermos:
-    def __init__(
-        self,
-        jhom: float = -3.5,
-        jhet: float = -2.0,
-        beta: float = 1.0,
-        fres: float = -20.0,
-        k: float = 1.0,
-        dmu: float = 0.0,
-    ):
-        self.jhom = jhom
-        self.jhet = jhet
-        self.beta = beta
-        self.fres = fres
-        self.k = k
-        self.dmu = dmu
+    jhom: float = -3.5
+    jhet: float = -2.0
+    beta: float = 1.0
+    fres: float = -20.0
+    k: float = 1.0
+    dmu: float = 0.0
 
+
+@dataclass(frozen=True, kw_only=True)
+class LatticeDimensions:
+    x_size: int = 100
+    y_size: int = 100
+
+    def __post_init__(self):
+        self.volume = self.x_size * self.y_size
 
 
 class DynamicalOrderDisorder:
@@ -37,11 +38,10 @@ class DynamicalOrderDisorder:
         self.data = pd.DataFrame()
         self.files, self.csv_file_number = iterdirs(self.base_path)
 
-        print('Initialized DynamicalOrderDisorder analysis for', self.name)
+        print("Initialized DynamicalOrderDisorder analysis for", self.name)
 
     def extract_thermos_from_file(self) -> Thermos:
         pass  # Placeholder
-
 
     def get_oder_parameters(self) -> dict[float, pd.DataFrame]:
         results = {}
@@ -49,8 +49,6 @@ class DynamicalOrderDisorder:
             _mu, _df = get_m_vals(f)
             results[_mu] = _df
         return results
-
-
 
     def calculate_zero_growth_speed(
         self, bootstrap: bool = True, n_bootstrap: int = 16, n_samples: int = 6
@@ -67,17 +65,76 @@ class DynamicalOrderDisorder:
                 bootstrap_results.append(x0)
             mu_0_mean = np.mean(bootstrap_results)
             mu_0_std = sem(bootstrap_results)
-            return [mu_0_mean, mu_0_std]
-        
-    def save_to_json(self, filename: str='fit_results.json'):
-       
+        return [mu_0_mean, mu_0_std]
+
+    def save_to_json(self, filename: str = "fit_results.json"):
+
         output_file = self.base_path / filename
-        to_save = {'v_c_fit_results': self.growth_speed_fit_results,
-                   'mu_c_fit_results': self.mu_fit_results}
+        to_save = {
+            "v_c_fit_results": self.growth_speed_fit_results,
+            "mu_c_fit_results": self.mu_fit_results,
+        }
 
         with open(output_file, "w") as json_file:
             json.dump(to_save, json_file, indent=4)
 
+
+    def get_precise_doodt(self, n_repeats: int = 100, fraction_data: float = 0.9) -> list[float, float, float, float]:
+
+        speed_results = []
+        mu_results = []
+        for i in range(n_repeats):
+            self.data = pd.DataFrame()
+            for f in self.files:
+                self.df, header = read_csv(
+                    f, n_samples=fraction_data, bootstrap=True
+                )
+                self.data = pd.concat([self.data, self.df], ignore_index=True)
+            self.data = self.data.sort_values(by=["growth_speed"])
+            popt = fit_lorentzian(self.data["growth_speed"], self.data["susc"])
+            x0, _, _ = popt
+            speed_results.append(x0)
+
+            self.data = self.data.sort_values(by=["mu"])
+            popt = fit_lorentzian(self.data["mu"], self.data["susc"])
+            x0, _, _ = popt
+            mu_results.append(x0)
+
+        v_c_mean = np.mean(speed_results)
+        v_c_sem = sem(speed_results)
+
+        mu_c_mean = np.mean(mu_results)
+        mu_c_sem = sem(mu_results)
+
+        return [v_c_mean, v_c_sem, mu_c_mean, mu_c_sem]
+
+
+    def get_susc_curves(self) -> list[list, list]:
+
+        for f in self.files:
+            self.df, header = read_csv(
+                f, n_samples=1.0, bootstrap=False
+            )
+            self.data = pd.concat([self.data, self.df], ignore_index=True)
+        self.data = self.data.sort_values(by=["growth_speed"])
+        pop_speed = fit_lorentzian(self.data["growth_speed"], self.data["susc"])
+
+        self.data = self.data.sort_values(by=["mu"])
+        pop_mu = fit_lorentzian(self.data["mu"], self.data["susc"])
+
+        return [pop_speed, pop_mu]
+
+
+    def get_data(self) -> pd.DataFrame:
+        for f in self.files:
+            self.df, header = read_csv(
+                    f, n_samples=1.0, bootstrap=False
+                )
+            self.data = pd.concat([self.data, self.df], ignore_index=True)
+        return self.data
+
+
+    # Should be depracated lol
     def analysis(
         self,
         bootstrap: bool = False,
@@ -88,13 +145,16 @@ class DynamicalOrderDisorder:
         plot_results: bool = False,
         save_results: bool = False,
     ):
+        raise DeprecationWarning("analysis() is deprecated.")
         if bootstrap:
             if type == "growth_speed":
                 bootstrap_results = {"v_c": [], "gamma_v_c": [], "A_v_c": []}
                 for i in range(n_bootstrap):
                     self.data = pd.DataFrame()
                     for f in self.files:
-                        self.df, header = read_csv(f, n_samples=n_samples, bootstrap=True)
+                        self.df, header = read_csv(
+                            f, n_samples=n_samples, bootstrap=True
+                        )
                         self.data = pd.concat([self.data, self.df], ignore_index=True)
                     # self.data["susc"] = self.data["susc"].astype(float) / np.max(self.data["susc"])
                     self.data = self.data.sort_values(by=["growth_speed"])
@@ -134,7 +194,9 @@ class DynamicalOrderDisorder:
                 bootstrap_results = {"mu_c": [], "gamma_mu_c": [], "A_mu_c": []}
                 for i in range(n_bootstrap):
                     for f in self.files:
-                        self.df, header = read_csv(f, n_samples=n_samples, bootstrap=True)
+                        self.df, header = read_csv(
+                            f, n_samples=n_samples, bootstrap=True
+                        )
                         self.data = pd.concat([self.data, self.df], ignore_index=True)
                     self.data = self.data.sort_values(by=["mu"])
                     self.mu_cont = np.linspace(
