@@ -1,7 +1,7 @@
 from pathlib import Path
 import pandas as pd
 from .iterdir import iterdirs
-from .read_csv import read_csv
+from .read_csv import read_csv, get_m_vals
 from .fitting import fit_lorentzian, lorentzian, polynomial, fit_polynomial
 import numpy as np
 from scipy.stats import sem
@@ -36,6 +36,21 @@ class DynamicalOrderDisorder:
 
         self.data = pd.DataFrame()
         self.files, self.csv_file_number = iterdirs(self.base_path)
+
+        print('Initialized DynamicalOrderDisorder analysis for', self.name)
+
+    def extract_thermos_from_file(self) -> Thermos:
+        pass  # Placeholder
+
+
+    def get_oder_parameters(self) -> dict[float, pd.DataFrame]:
+        results = {}
+        for f in self.files:
+            _mu, _df = get_m_vals(f)
+            results[_mu] = _df
+        return results
+
+
 
     def calculate_zero_growth_speed(
         self, bootstrap: bool = True, n_bootstrap: int = 16, n_samples: int = 6
@@ -77,15 +92,18 @@ class DynamicalOrderDisorder:
             if type == "growth_speed":
                 bootstrap_results = {"v_c": [], "gamma_v_c": [], "A_v_c": []}
                 for i in range(n_bootstrap):
+                    self.data = pd.DataFrame()
                     for f in self.files:
                         self.df, header = read_csv(f, n_samples=n_samples, bootstrap=True)
                         self.data = pd.concat([self.data, self.df], ignore_index=True)
+                    # self.data["susc"] = self.data["susc"].astype(float) / np.max(self.data["susc"])
                     self.data = self.data.sort_values(by=["growth_speed"])
                     self.speed_cont = np.linspace(
                         self.data["growth_speed"].min(),
                         self.data["growth_speed"].max(),
                         n_continous_data_points,
                     )
+                    # print(self.data["susc"])
                     popt = fit_lorentzian(self.data["growth_speed"], self.data["susc"])
                     x0, gamma, A = popt
                     bootstrap_results["v_c"].append(x0)
@@ -124,6 +142,7 @@ class DynamicalOrderDisorder:
                         self.data["mu"].max(),
                         n_continous_data_points,
                     )
+                    # self.data["susc"] = self.data["susc"].astype(float) / np.max(self.data["susc"])
                     popt = fit_lorentzian(self.data["mu"], self.data["susc"])
                     x0, gamma, A = popt
                     bootstrap_results["mu_c"].append(x0)
@@ -152,7 +171,8 @@ class DynamicalOrderDisorder:
                 }
 
         if not bootstrap and type == "full":
+            self.data = pd.DataFrame()
             for f in self.files:
                 self.df, header = read_csv(f, n_samples=n_samples)
                 self.data = pd.concat([self.data, self.df], ignore_index=True)
-                self.data = self.data.sort_values(by=["mu"])
+            self.data = self.data.sort_values(by=["mu"])

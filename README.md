@@ -1,9 +1,12 @@
-# The Idea
+# Analyzing `nesspy` data
 
 
-1. Give directory to `iterdir` which returns a `dict` with `{'mu': [], 'file': []}` as well as a dict with all of the important information that do not change within one directory like `{'xsize': int, 'ysize': int, 'df': float, ...}`. Check that these values are consistent throughtout all directories!
+## Dynamical Order Disorder Transitions
 
-2. Iterate through `dict` to get `m, m2, v` etc. from every csv file using `read_csv` returning a `pd.DataFrame`. Calculate `dphi` as a function of `mu`.
+The class `DynamicalOrderDisorder` expects a parent folder with `out.csv` files in subfolders. Every `out.csv` file corresponds to measurements of an order parameter $m$ at a given $\beta \mu$. 
 
+```python
+DynamicalOrderDisorder.analysis(bootstrap=True, n_bootstrap, type, n_samples)
+```
 
-3. Use this `pd.DataFrame` with `samples` for a bootstrapping analysis and fitting of `m` and `v` as a function of `dphi`. Return `pd.DataFrame` with `dphi`, `v`, and `m` for later usage. Also have a `np.array` for the continous fitted values!
+`type` can be `"growth_speed"` or `"mu"`. Thermodynamic parameters need to be consistent for all simulations within one instance of `DynamicalOrderDisorder` and can be extracted as a `Thermos` object using `DynamicalOrderDisorder.extract_thermos_from_file()`. 

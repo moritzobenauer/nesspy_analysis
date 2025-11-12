@@ -2,6 +2,17 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
+def get_m_vals(file: Path) -> list[float, np.ndarray]:
+    df = pd.read_csv(file, comment="#", header=0)
+    df = df.apply(pd.to_numeric, errors="coerce")
+    df = df.dropna(how="all")
+
+    m_vals = df["m"].values
+
+    mu = np.round(df["mu"].mean(), 4)
+
+    return [mu, m_vals]
+
 
 def get_data_point_from_out_file(file: Path, n_samples: int, bootstrap: bool=True) -> pd.DataFrame:
 
@@ -10,7 +21,9 @@ def get_data_point_from_out_file(file: Path, n_samples: int, bootstrap: bool=Tru
     df = df.dropna(how="all")
 
     if bootstrap:
-        df = df.sample(n_samples, random_state=np.random.randint(0, 10000), replace=True)
+        # df = df.sample(n_samples, random_state=np.random.randint(0, 10000), replace=True)
+        df = df.sample(frac=n_samples, random_state=np.random.randint(0, 10000), replace=True)
+
     else:
         pass
 
@@ -81,6 +94,17 @@ def get_epsilon(file: Path) -> float:
     return None
 
 
+def get_epsilon_het(file: Path) -> float:
+    with open(file, "r") as f:
+        lines = f.readlines()
+        for line in lines:
+            if line.startswith("# jhet"):
+                epsilon = float(line.split(":")[1].strip())
+                return epsilon
+    return None
+
+
+
 def get_df(file: Path) -> float:
     with open(file, "r") as f:
         lines = f.readlines()
@@ -119,14 +143,19 @@ def read_csv(file: Path, n_samples: int=6, bootstrap: bool=True) -> tuple[pd.Dat
 
     lattice = get_lattice_dimensions(file)
     epsilon = get_epsilon(file)
+    epsilon_het = get_epsilon_het(file)
     fres = get_df(file)
     k = get_k(file)
     dmu = get_dmu(file)
 
     # Read the CSV file into a DataFrame
 
+    try:
 
-    data_points = get_data_point_from_out_file(file, n_samples, bootstrap=bootstrap)
+        data_points = get_data_point_from_out_file(file, n_samples, bootstrap=bootstrap)
+
+    except ValueError:
+        print(f"Error reading file {file}")
     
 
 
@@ -145,7 +174,11 @@ def read_csv(file: Path, n_samples: int=6, bootstrap: bool=True) -> tuple[pd.Dat
         "lattice_x": lattice[0],
         "lattice_y": lattice[1],
         "lattice_size": lattice[2],
-        "epsilon": epsilon,
+        "jhom": epsilon,
+        "jhet": epsilon_het,
+        "fres": fres,
+        "k": k,
+        "dmu": dmu,
     }
 
     return (data_points, header_info)

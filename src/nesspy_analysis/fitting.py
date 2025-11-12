@@ -65,19 +65,24 @@ def fit_lorentzian(xdata, ydata, yerr=None):
     # Find the xvalue where ydata is maximum
     if ydata.size == 0:
         raise ValueError("ydata is empty")
+    
+    if len(xdata) != len(ydata):
+        raise ValueError("xdata and ydata must have the same length")
 
     max_index = np.argmax(ydata)
+    max_val = np.max(ydata)
     x0 = xdata[max_index]
+    width = xdata[max_index + 1] - xdata[max_index - 1]
     # print("Initial guess for x0:", x0)
 
     if yerr is None:
-        popt, pcov = curve_fit(lorentzian, xdata, ydata, p0=[x0, 0.01, 0.01])
+        popt, pcov = curve_fit(lorentzian, xdata, ydata, p0=[x0, width, max_val], maxfev=10000)
         # print(np.mean(xdata))
         params = popt
     else:
         model = odr.Model(lorentzian_fit)
         mydata = odr.RealData(xdata, ydata, sy=yerr)
-        myodr = odr.ODR(mydata, model, beta0=[x0, 0.01, 0.01])
+        myodr = odr.ODR(mydata, model, beta0=[x0, width, max_val])
         myoutput = myodr.run()
         # myoutput.pprint()
 
