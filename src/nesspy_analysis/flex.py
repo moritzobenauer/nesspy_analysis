@@ -3,7 +3,7 @@ from .classes import Thermos
 
 
 def calculate_dphi(
-    mu: np.array, thermos: Thermos, drivetype: str = "NODRIVE"
+    mu: np.array, thermos: Thermos
 ) -> np.array:
     jhom = thermos.jhom
     jhet = thermos.jhet
@@ -11,6 +11,7 @@ def calculate_dphi(
     fres = thermos.fres
     k = thermos.k
     beta = thermos.beta
+    drivetype = thermos.method  
 
     def exact_phi(
         mu: np.array, jhom, jhet, dmu, fres, k, beta: float = 1.0
@@ -40,20 +41,20 @@ def calculate_dphi(
         return exact_phi(mu, jhom, jhet, dmu, fres, k, beta)
     elif drivetype == "HOMO":
         return flex_phi(mu, jhom, jhet, dmu, fres, k, beta)
-    elif drivetype == "SCHEME_3":
+    elif drivetype == "SCHEME_3" or drivetype == "SCHEME3":
         dmu = dmu * np.exp(-2.0)
         return flex_phi(mu, jhom, jhet, dmu, fres, k, beta)
-    elif drivetype == "SCHEME_6":
+    elif drivetype == "SCHEME_6" or drivetype == "SCHEME6":
         dmu = dmu * np.exp(-2.0)
         return flex_phi(mu, jhom, jhet, dmu, fres, k, beta)
-    elif drivetype == "SCHEME_7":
+    elif drivetype == "SCHEME_7" or drivetype == "SCHEME7":
         dmu = dmu / 2.0
         return flex_phi(mu, jhom, jhet, dmu, fres, k, beta)
-    elif drivetype == "SCHEME_91":
+    elif drivetype == "SCHEME_91" or drivetype == "SCHEME91":
         k = k * np.exp(-2.0)
         return flex_phi(mu, jhom, jhet, dmu, fres, k, beta)
-    elif drivetype == "SCHEME_93":
+    elif drivetype == "SCHEME_93" or drivetype == "SCHEME93":
         k = k * np.exp(-2.0)
         return flex_phi(mu, jhom, jhet, dmu, fres, k, beta)
     else:
-        raise ValueError(f"Unknown drivetype: {drivetype}")
+        raise ValueError(f"Unknown driving scheme: {drivetype}")
