@@ -11,7 +11,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -27,10 +27,10 @@ class Thermos:
     # In the future it might be even more useful to provide an interaction matrix
     # for more complex systems.
 
-    epsilon_matrix: np.array = np.array([[-3.5, -2.0], [-2.0, -3.5]])
+    epsilon_matrix: np.array = field(default_factory=lambda: np.array([[-3.5, -2.0], [-2.0, -3.5]]))
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(kw_only=True)
 class Lattice2D:
     x_size: int = 100
     y_size: int = 100
