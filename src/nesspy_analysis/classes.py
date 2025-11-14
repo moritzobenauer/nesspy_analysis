@@ -22,14 +22,19 @@ class Thermos:
     fres: float = -20.0
     k: float = 1.0
     dmu: float = 0.0
-    method: str='NODRIVE'
+    method: str = "NODRIVE"
+
+    # In the future it might be even more useful to provide an interaction matrix
+    # for more complex systems.
+
+    epsilon_matrix: np.array = np.array([[-3.5, -2.0], [-2.0, -3.5]])
 
 
 @dataclass(frozen=True, kw_only=True)
-class Lattice:
+class Lattice2D:
     x_size: int = 100
     y_size: int = 100
-    pbc: str = 'periodic'
+    pbc: str = "periodic"
     restricted_sampling: bool = False
     rs_width: int = 0
 
@@ -50,7 +55,11 @@ class MultipleSimulations:
             self.files.extend(files)
             self.csv_file_number += csv_file_number
 
-        logging.info("Initialized MultipleSimulations analysis for %s with %d CSV files", self.name, self.csv_file_number)
+        logging.info(
+            "Initialized MultipleSimulations analysis for %s with %d CSV files",
+            self.name,
+            self.csv_file_number,
+        )
 
     def get_raw_data(self) -> pd.DataFrame:
         _df = pd.DataFrame()
@@ -58,7 +67,9 @@ class MultipleSimulations:
             _local = pd.read_csv(f, comment="#", skip_blank_lines=True)
             _df = pd.concat([_df, _local], ignore_index=True)
         self.data = _df
+        logging.info("# Data points loaded: %d", len(self.data))
         return _df
+
 
 class DynamicalOrderDisorder:
     def __init__(self, name: str, base_path: Path):
@@ -72,8 +83,9 @@ class DynamicalOrderDisorder:
         logging.info("Initialized DynamicalOrderDisorder analysis for", self.name)
 
     def extract_thermos_from_file(self) -> Thermos:
-        raise NotImplementedError("This method is not implemented yet. Please implement it to extract thermodynamic parameters from the files.")
-        
+        raise NotImplementedError(
+            "This method is not implemented yet. Please implement it to extract thermodynamic parameters from the files."
+        )
 
     def get_raw_data(self) -> pd.DataFrame:
         _df = pd.DataFrame()
@@ -108,16 +120,16 @@ class DynamicalOrderDisorder:
             mu_0_std = sem(bootstrap_results)
         return [mu_0_mean, mu_0_std]
 
-    def get_precise_doodt(self, n_repeats: int = 100, fraction_data: float = 0.9) -> list[float, float, float, float]:
+    def get_precise_doodt(
+        self, n_repeats: int = 100, fraction_data: float = 0.9
+    ) -> list[float, float, float, float]:
 
         speed_results = []
         mu_results = []
         for i in range(n_repeats):
             self.data = pd.DataFrame()
             for f in self.files:
-                self.df, header = read_csv(
-                    f, n_samples=fraction_data, bootstrap=True
-                )
+                self.df, header = read_csv(f, n_samples=fraction_data, bootstrap=True)
                 self.data = pd.concat([self.data, self.df], ignore_index=True)
             self.data = self.data.sort_values(by=["growth_speed"])
             popt = fit_lorentzian(self.data["growth_speed"], self.data["susc"])
@@ -137,13 +149,10 @@ class DynamicalOrderDisorder:
 
         return [v_c_mean, v_c_sem, mu_c_mean, mu_c_sem]
 
-
     def get_susc_curves(self) -> list[list, list]:
 
         for f in self.files:
-            self.df, header = read_csv(
-                f, n_samples=1.0, bootstrap=False
-            )
+            self.df, header = read_csv(f, n_samples=1.0, bootstrap=False)
             self.data = pd.concat([self.data, self.df], ignore_index=True)
         self.data = self.data.sort_values(by=["growth_speed"])
         pop_speed = fit_lorentzian(self.data["growth_speed"], self.data["susc"])
@@ -153,14 +162,8 @@ class DynamicalOrderDisorder:
 
         return [pop_speed, pop_mu]
 
-
     def get_data(self) -> pd.DataFrame:
         for f in self.files:
-            self.df, header = read_csv(
-                    f, n_samples=1.0, bootstrap=False
-                )
+            self.df, header = read_csv(f, n_samples=1.0, bootstrap=False)
             self.data = pd.concat([self.data, self.df], ignore_index=True)
         return self.data
-
-
-    

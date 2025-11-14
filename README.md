@@ -8,10 +8,10 @@ Thermodynamic properties of a system that can be used in FLEX calculations or an
 
 ### Lattice Properties
 
-The `Lattice` class saves the dimensions as well as details about the periodic boundary conditions of a given simulation.
+The `Lattice2D` class saves the dimensions as well as details about the periodic boundary conditions of a given simulation.
 
 > [!NOTE]
-> Note to myself: `nesspy` should output a `Thermos` and a `Lattice` File in the main directory!
+> Note to myself: `nesspy` should output a `Thermos` and `Lattice` files in the main directory!
 
 ## Analysis Classes
 ### Dynamical Order Disorder Transitions
