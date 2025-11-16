@@ -12,7 +12,7 @@ thermos_for_inert = npa.Thermos()
 data = analysis_2.get_data()
 data = data.sort_values(by=["mu"])
 
-data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_inert, 'NODRIVE')
+data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_inert)
 
 plt.errorbar(
     data['dphi'],
@@ -29,7 +29,7 @@ thermos_for_inert = npa.Thermos(fres=0.0, dmu=0.0, k=1.0)
 data = analysis_2.get_data()
 data = data.sort_values(by=["mu"])
 
-data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_inert, 'NODRIVE')
+data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_inert)
 
 plt.errorbar(
     data['dphi'],
@@ -42,12 +42,12 @@ plt.errorbar(
 
 base_path = Path("/Volumes/2025/research_nov_2025_data/ML_F0_D1_K1_SCHEME_6")
 analysis_2 = npa.DynamicalOrderDisorder("mu1", base_path)
-thermos_for_mu1 = npa.Thermos(fres=0.0, dmu=1.0, k=1.0)
+thermos_for_mu1 = npa.Thermos(fres=0.0, dmu=1.0, k=1.0, method="SCHEME6")
 
 data = analysis_2.get_data()
 data = data.sort_values(by=["mu"])
 
-data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_mu1, 'SCHEME_6')
+data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_mu1)
 plt.errorbar(
     data['dphi'],
     data["m"],
@@ -58,12 +58,12 @@ plt.errorbar(
 
 base_path = Path("/Volumes/2025/research_nov_2025_data/ML_F0_D2_K1_SCHEME_6")
 analysis_2 = npa.DynamicalOrderDisorder("mu2", base_path)
-thermos_for_mu2 = npa.Thermos(fres=0.0, dmu=2.0, k=1.0)
+thermos_for_mu2 = npa.Thermos(fres=0.0, dmu=2.0, k=1.0, method="SCHEME6")
 
 data = analysis_2.get_data()
 data = data.sort_values(by=["mu"])
 
-data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_mu2, 'SCHEME_6')
+data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_mu2)
 plt.errorbar(
     data['dphi'],
     data["m"],
@@ -75,10 +75,10 @@ plt.errorbar(
 
 base_path = Path("/Volumes/2025/research_nov_2025_data/ML_F0_D4_K1_SCHEME_6")
 analysis_2 = npa.DynamicalOrderDisorder("mu4", base_path)
-thermos_for_mu4 = npa.Thermos(fres=0.0, dmu=4.0, k=1.0)
+thermos_for_mu4 = npa.Thermos(fres=0.0, dmu=4.0, k=1.0, method="SCHEME6")
 data = analysis_2.get_data()
 data = data.sort_values(by=["mu"])
-data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_mu4, 'SCHEME_6')
+data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_mu4)
 plt.errorbar(
     data['dphi'],
     data["m"],
@@ -90,10 +90,10 @@ plt.errorbar(
 
 base_path = Path("/Volumes/2025/research_nov_2025_data/ML_F0_D5_K1_SCHEME_6")
 analysis_2 = npa.DynamicalOrderDisorder("mu5", base_path)
-thermos_for_mu5 = npa.Thermos(fres=0.0, dmu=5.0, k=1.0)
+thermos_for_mu5 = npa.Thermos(fres=0.0, dmu=5.0, k=1.0, method="SCHEME6")
 data = analysis_2.get_data()
 data = data.sort_values(by=["mu"])
-data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_mu5, 'SCHEME_6')
+data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_mu5)
 plt.errorbar(
     data['dphi'],
     data["m"],
