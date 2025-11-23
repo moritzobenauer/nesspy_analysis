@@ -3,38 +3,22 @@ from pathlib import Path
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+import pickle
 
-n_bootstrap = 32
-n_samples = 0.9
+base_path = Path("/Volumes/2025/research_nov_2025_data/ML_F0_D8_K1_SCHEME_6_BJ")
 
-fig, ax = plt.subplots(figsize=(8, 6))
-ax2 = ax.twinx()
+analysis_2 = npa.DynamicalOrderDisorder("mu8", base_path)
 
 
-base_path = Path("/Users/moritzobenauer/Desktop/ML_F-20_D0_K0")
-analysis_2 = npa.DynamicalOrderDisorder("no_inert_states", base_path)
 
-results = analysis_2.get_precise_doodt(n_bootstrap, n_samples)
+class MyUnpickler(pickle.Unpickler):
+    def find_class(self, module, name):
+        # Redirect the old class to the new one
+        # if module == "nesspy.src" and name == "Thermos":
+        return npa.Thermos
+        # return super().find_class(module, name)
 
-curve_v, curve_mu = analysis_2.get_susc_curves()
+with open(base_path / "Thermos", "rb") as f:
+    obj = MyUnpickler(f).load()
 
-mus = np.linspace(-7,0,1000)
-suscs = npa.lorentzian(mus, *curve_mu)
-
-print(results)
-
-plt.plot(mus, suscs, label="Fitted Susc. Curve", color="gray", linestyle="--")
-
-data = analysis_2.get_data()
-data = data.sort_values(by=["mu"])
-
-plt.scatter(
-    data["mu"],
-    data["susc"],
-    label="Data Points",
-    color="blue",
-    alpha=0.5,
-    s=10,
-)
-
-print(analysis_2.calculate_zero_growth_speed())
+print(obj)
