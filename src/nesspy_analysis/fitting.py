@@ -47,8 +47,9 @@ def fit_polynomial(xdata: None, ydata: None):
         y_lin = np.array([ydata[0], ydata[1]])
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
-            m,b = np.polyfit(x_lin, y_lin, 1)
+            m,b = np.polyfit(xdata, ydata, 1)
         initial_guess = [1, 1, 1, b/m]
+        print(initial_guess)
 
         popt, pcov = curve_fit(polynomial, xdata, ydata, p0=initial_guess)
         return popt
@@ -72,11 +73,17 @@ def fit_lorentzian(xdata, ydata, yerr=None):
     max_index = np.argmax(ydata)
     max_val = np.max(ydata)
     x0 = xdata[max_index]
-    width = xdata[max_index + 1] - xdata[max_index - 1]
+    width = (xdata.max() - xdata.min())/2
+    # try:
+    #     width = xdata[max_index + 1] - xdata[max_index - 1]
+        
+    # except Exception:
+    #     # print(xdata)
+    #     width = (xdata.max() - xdata.min())
     # print("Initial guess for x0:", x0)
 
     if yerr is None:
-        popt, pcov = curve_fit(lorentzian, xdata, ydata, p0=[x0, width, max_val], maxfev=10000)
+        popt, pcov = curve_fit(lorentzian, xdata, ydata, p0=[x0, width, max_val], maxfev=100000)
         # print(np.mean(xdata))
         params = popt
     else:

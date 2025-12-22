@@ -58,7 +58,7 @@ data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_mu2)
 # )
 plt.plot(data['growth_speed'], data["m"], label="Growth Speed mu2", linestyle="none", ms=10, marker="o")
 
-base_path = Path("/Volumes/2025/research_nov_2025_data/ML_F0_D4_K1_SCHEME_7")
+base_path = Path("/Volumes/2025/research_nov_2025_data/ML_F0_D4_K1_SCHEME_7_BJ")
 analysis_2 = npa.DynamicalOrderDisorder("mu4", base_path)
 thermos_for_mu4 = npa.Thermos(fres=0.0, dmu=4.0, k=1.0, method="SCHEME7")
 

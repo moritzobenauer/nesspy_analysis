@@ -1,13 +1,13 @@
 from pathlib import Path
 import pandas as pd
-from .iterdir import iterdirs
+from .iterdir import iterdirs, find_all_final_configs
 from .read_csv import read_csv, get_m_vals
 from .fitting import fit_lorentzian, lorentzian, polynomial, fit_polynomial
 import numpy as np
 from scipy.stats import sem
 import json
 import logging
-
+import matplotlib.pyplot as plt
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -55,10 +55,10 @@ class MultipleSimulations:
             self.files.extend(files)
             self.csv_file_number += csv_file_number
 
+        print(self.csv_file_number)
+
         logging.info(
-            "Initialized MultipleSimulations analysis for %s with %d CSV files",
-            self.name,
-            self.csv_file_number,
+            f"Initialized MultipleSimulations analysis for {self.name} with {self.csv_file_number} CSV files"
         )
 
     def get_raw_data(self) -> pd.DataFrame:
@@ -80,7 +80,9 @@ class DynamicalOrderDisorder:
         self.data = pd.DataFrame()
         self.files, self.csv_file_number = iterdirs(self.base_path)
 
-        logging.info("Initialized DynamicalOrderDisorder analysis for", self.name)
+        logging.info(
+            f"Initialized DynamicalOrderDisorder analysis for {self.name} with {self.csv_file_number} CSV files"
+        )
 
     def extract_thermos_from_file(self) -> Thermos:
         raise NotImplementedError(
@@ -94,6 +96,17 @@ class DynamicalOrderDisorder:
             _df = pd.concat([_df, _local], ignore_index=True)
         _df = _df.sort_values(by=["mu"])
         self.data = _df
+
+        # Check if all RSW values are the same
+        rsw_values = self.data["RSW"].unique()
+        if len(rsw_values) > 1:
+            logger.warning(
+                "Multiple RSW values found in the data: %s. This may indicate inconsistent data.",
+                rsw_values,
+            )
+        else:
+            logger.info("All RSW values are consistent: %s", rsw_values[0])
+
         return _df
 
     def get_oder_parameters(self) -> dict[float, pd.DataFrame]:
@@ -104,24 +117,26 @@ class DynamicalOrderDisorder:
         return results
 
     def calculate_zero_growth_speed(
-        self, bootstrap: bool = True, n_bootstrap: int = 16, n_samples: int = 6
+        self, bootstrap: bool = True, n_bootstrap: int = 5, fraction: float = 0.9
     ) -> list[float, float]:
-        if bootstrap:
-            bootstrap_results = []
-            for i in range(n_bootstrap):
-                for f in self.files:
-                    self.df, header = read_csv(f, n_samples=n_samples, bootstrap=True)
-                    self.data = pd.concat([self.data, self.df], ignore_index=True)
-                self.data = self.data.sort_values(by=["mu"])
-                popt = fit_polynomial(self.data["mu"], self.data["growth_speed"])
-                a, b, c, x0 = popt
-                bootstrap_results.append(x0)
-            mu_0_mean = np.mean(bootstrap_results)
-            mu_0_std = sem(bootstrap_results)
+        bootstrap_results = []
+        for _ in range(n_bootstrap):
+            for f in self.files:
+                self.df, header = read_csv(f, n_samples=fraction, bootstrap=True)
+                self.data = pd.concat([self.data, self.df], ignore_index=True)
+            self.data = self.data.sort_values(by=["mu"])
+            mu_min = self.data["mu"].min()
+            self.data = self.data[self.data["mu"] < mu_min + 0.3]
+
+            m,b =np.polyfit(self.data["mu"], self.data["growth_speed"], 1)
+            x0 = -b/m
+            bootstrap_results.append(x0)
+        mu_0_mean = np.mean(bootstrap_results)
+        mu_0_std = sem(bootstrap_results)
         return [mu_0_mean, mu_0_std]
 
     def get_precise_doodt(
-        self, n_repeats: int = 100, fraction_data: float = 0.9
+        self, n_repeats: int = 25, fraction_data: float = 0.9
     ) -> list[float, float, float, float]:
 
         speed_results = []
@@ -166,4 +181,5 @@ class DynamicalOrderDisorder:
         for f in self.files:
             self.df, header = read_csv(f, n_samples=1.0, bootstrap=False)
             self.data = pd.concat([self.data, self.df], ignore_index=True)
+
         return self.data

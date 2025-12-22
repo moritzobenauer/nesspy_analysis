@@ -2,6 +2,11 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 def get_m_vals(file: Path) -> list[float, np.ndarray]:
     df = pd.read_csv(file, comment="#", header=0)
     df = df.apply(pd.to_numeric, errors="coerce")
@@ -41,6 +46,17 @@ def get_data_point_from_out_file(file: Path, n_samples: int, bootstrap: bool=Tru
     time_elapsed_average = df["gspeed"].mean()
     time_elapsed_delta = df["gspeed"].sem()
 
+    rsw_values = df["rs_width"].unique()
+    RSWDITH_CHECK: bool = False
+    if len(rsw_values) > 1:
+        logger.warning(
+            "Multiple RSW values found in the data: %s. This may indicate inconsistent data.",
+            rsw_values,
+        )
+    else:
+        RSWDITH_CHECK = True
+    rsw = rsw_values[0]
+
     # Calculate susceptibility
 
     # susc_rows = df["msquared"] - df["m"]**2
@@ -65,6 +81,8 @@ def get_data_point_from_out_file(file: Path, n_samples: int, bootstrap: bool=Tru
         "dm2": m2_delta,
         "dmu": dmu,
         "susc": susc,
+        "rsw": rsw,
+        "rsw_check": RSWDITH_CHECK,
         # "susc_delta": susc_error,
     }
     out = pd.DataFrame(dic, index=[0])
@@ -156,6 +174,9 @@ def read_csv(file: Path, n_samples: int=6, bootstrap: bool=True) -> tuple[pd.Dat
 
     except ValueError:
         print(f"Error reading file {file}")
+
+    if data_points["rsw_check"].values.any() == False:
+        raise ValueError(f"RSW values are not consistent in file {file}")
     
 
 
