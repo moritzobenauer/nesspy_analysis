@@ -46,3 +46,8 @@ To easily get the raw output data from multiple simulations an instance of the c
 - **Misc**: `print_verbose_startup()` banner.
 - **Scripts** (`2026/`): `analyzing_order_disorder.py` (single-run pipeline) and
   `parent_sweeper.py` (sweep over a parent directory with `--verbose` logging).
+- **Lattice overviews** (`parent_sweeper.py`): the sweep now also renders
+  `lattice_overview.png` grids of the final lattices so runs can be eyeballed —
+  one grid inside every $\mu$ subfolder (tiling that folder's
+  `lattice_final.npy` replicates) and one combined grid per run directory.
+  Plotting runs even if the order-disorder fit for a run fails.

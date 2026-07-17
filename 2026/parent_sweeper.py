@@ -13,6 +13,52 @@ from analyzing_order_disorder import analyze_directory
 logger = logging.getLogger(__name__)
 
 
+def plot_lattice_overviews(run_dir: Path) -> None:
+    """Render overview grids of the final lattices for a single run directory.
+
+    Produces two kinds of figure:
+
+    - ``lattice_overview.png`` inside every mu subfolder, tiling that folder's
+      ``lattice_final.npy`` file(s) (there may be several replicate seeds).
+    - ``lattice_overview.png`` inside ``run_dir`` itself, tiling every final
+      lattice found anywhere under the run.
+
+    Failures for an individual mu folder are logged and skipped so one bad
+    folder doesn't abort the whole run.
+    """
+    # per-mu-folder grids: each immediate subdirectory that holds one or more
+    # lattice_final.npy (possibly nested under replicate-seed subfolders).
+    for mu_folder in sorted(f for f in run_dir.iterdir() if f.is_dir()):
+        try:
+            files = sorted(npa.find_all_final_configs(mu_folder))
+        except ValueError:
+            # no lattice_final.npy under this subfolder; not a mu run folder.
+            continue
+        try:
+            fig, _ = npa.plot_all_configurations(files)
+            fig.savefig(mu_folder / "lattice_overview.png", dpi=200)
+            plt.close(fig)
+            logger.info("Saved %d-lattice overview to %s", len(files), mu_folder)
+        except Exception as e:
+            logger.warning("Could not plot lattices for %s: %s", mu_folder, e)
+
+    # combined grid over every final lattice in the run
+    try:
+        all_files = sorted(npa.find_all_final_configs(run_dir))
+    except ValueError:
+        logger.warning("No lattice_final.npy files found under %s", run_dir)
+        return
+    try:
+        fig, _ = npa.plot_all_configurations(all_files)
+        fig.savefig(run_dir / "lattice_overview.png", dpi=200)
+        plt.close(fig)
+        logger.info(
+            "Saved combined %d-lattice overview to %s", len(all_files), run_dir
+        )
+    except Exception as e:
+        logger.warning("Could not plot combined lattice overview for %s: %s", run_dir, e)
+
+
 if __name__ == "__main__":
     # Everything sits behind the __main__ guard because analyze_directory ->
     # get_wq() spawns a multiprocessing Pool.
@@ -63,6 +109,14 @@ if __name__ == "__main__":
             # A subfolder may not be a valid run directory (e.g. no out.csv),
             # or the sigmoid fit may fail; skip it and keep sweeping.
             logger.warning("Skipping %s: %s", sub.name, e)
+
+        # plot the final-lattice overviews regardless of whether the
+        # order-disorder analysis above succeeded, so the lattices can always
+        # be eyeballed.
+        try:
+            plot_lattice_overviews(sub)
+        except Exception as e:
+            logger.warning("Could not plot lattice overviews for %s: %s", sub.name, e)
 
     if not results:
         raise SystemExit(f"No subdirectories under {parent_dir} could be analyzed.")
