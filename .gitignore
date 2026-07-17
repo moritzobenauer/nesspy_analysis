@@ -10,3 +10,7 @@ plots/
 csv/
 # Virtual environments
 .venv
+
+
+./2025/PAPER_ADDIDITIONS/*
+2025/PAPER_ADDIDITIONS/

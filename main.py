@@ -44,33 +44,27 @@ if __name__ == "__main__":
 
     # plt.clf()
 
-    for i in [1]:
-        base_path = Path(
-            f"/Volumes/2025/smatch_2025/different_dfs/SL_F2_D0_K{i}_GROWTH"
-        )
+     base_path = Path(
+         f"/Volumes/2025/2026_FIXED_DT/ML_F-20.0_D0.0_K1.0_SCHEME_0.0"
+     )
 
-        thermo = npa.Thermodynamics(jhom=-3.5,
-                                    jhet=-2.0,
-                                    beta=1.0,
-                                    fres=0.0,
-                                    k=1.0,
-                                    dmu=0.0)
+     thermo = npa.Thermos(jhom=-3.5,
+                                 jhet=-2.0,
+                                 beta=1.0,
+                                 fres=-20.0,
+                                 k=1.0,
+                                 dmu=0.0,
+                                 method="NODRIVE",)
 
-        analysis = npa.DynamicalOrderDisorder(i, base_path)
-        analysis.analysis(
-            bootstrap=True, n_bootstrap=10, type="mu", n_samples=8
-        )
-        results_fit_mu = analysis.mu_fit_results
-        plt.plot(
-            results_fit_mu["mu_cont"],
-            results_fit_mu["lorentzian_fit"],
-            label=f"K={i}",
-        )
-        plt.scatter(
-            analysis.data["mu"],
-            analysis.data["m"],
-        )
+     analysis = npa.DynamicalOrderDisorder('test', base_path)
+     df = analysis.get_data()
+     df = df.sort_values(by='mu')
 
-    # plt.xscale("log")
-    plt.legend()
-    plt.show()
+     plt.errorbar(df['mu'], df['growth_speed'], yerr=df['dgrowth_speed'], fmt='o', label='Data with error bars')
+
+     mu_0, mu_0_std = analysis.calculate_zero_growth_speed()
+     plt.axvline(mu_0, color='r', linestyle='--', label=f'Zero Growth Speed μ₀ = {mu_0:.2f} ± {mu_0_std:.2f}')
+     plt.grid()
+     plt.show()
+
+

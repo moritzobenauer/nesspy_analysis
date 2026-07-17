@@ -179,8 +179,16 @@ def read_csv(file: Path, n_samples: int=6, bootstrap: bool=True) -> tuple[pd.Dat
         raise ValueError(f"RSW values are not consistent in file {file}")
     
 
+    # 2026-01-16: The growth speed per lattice site is calculated as follows
+    # <v> = 1/(<t>*D) * 2 * L_y^2
 
-    data_points['growth_speed'] = (1./data_points['t'])*0.5*lattice[0]
+    data_points['growth_speed'] =lattice[1]**2 * 2 * 1./ data_points['t']
+
+    # Gaussian error propagation: Δ<v> = |d<v>/d<t>| * Δ<t> = (1/D) * 2 * L_y^2 * (1/t^2) * Δ<t>
+
+    data_points['dgrowth_speed'] = lattice[1]**2 * 2 * (1./data_points['t']**2) * data_points['dt']
+
+    # data_points['growth_speed'] = (1./data_points['t'])*0.5*lattice[0]
 
     # Double check that the k, df, and dmu values match those from the header
 
