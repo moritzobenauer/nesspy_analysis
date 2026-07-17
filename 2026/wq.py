@@ -24,8 +24,8 @@ def get_steady_state_probabilities_numerical(epsilon_homo, epsilon_hetero, mu, F
 
     elif scheme=='SCHEME6':
         dmu0 = np.log(M)
-
-        M = np.exp(dmu*np.exp(-np.abs(n_red-n_blue)))
+        # 2026-07-15: Fixed global variable leak (changed dmu to dmu0)
+        M = np.exp(dmu0*np.exp(-np.abs(n_red-n_blue)))
 
     # Set up the generator matrix
 
@@ -128,11 +128,11 @@ if __name__ == "__main__":
 
 
     fres=0.0
-    dmu=0.5
-    epsilon_homo = -3.5
+    dmu=0.0
+    epsilon_homo = -4.0
     epsilon_hetero = -2.0
     k=1.0
-    SCHEME='SCHEME6'
+    SCHEME='HOMO'
     F = np.exp(fres)
     M = np.exp(dmu)
 

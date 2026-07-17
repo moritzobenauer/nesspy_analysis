@@ -54,6 +54,51 @@ def fit_polynomial(xdata: None, ydata: None):
         popt, pcov = curve_fit(polynomial, xdata, ydata, p0=initial_guess)
         return popt
 
+def sigmoid(x, L, x0, k, b):
+    """Four-parameter logistic. Its inflection point sits at x = x0."""
+    # Clip the exponent to avoid harmless overflow warnings in the tails
+    # (exp -> inf simply saturates the logistic to b or b + L).
+    z = np.clip(k * (np.asarray(x, dtype=float) - x0), -500, 500)
+    return b + L / (1 + np.exp(z))
+
+
+def fit_sigmoid(xdata, ydata, yerr=None):
+    """Fit a logistic to (x, y) and return popt = [L, x0, k, b].
+
+    x0 is the inflection point. The initial slope sign is inferred from the
+    data so both increasing and decreasing transitions converge.
+    """
+    xdata = np.asarray(xdata, dtype=float)
+    ydata = np.asarray(ydata, dtype=float)
+
+    if xdata.size == 0 or ydata.size == 0:
+        raise ValueError("xdata and ydata must be non-empty")
+    if len(xdata) != len(ydata):
+        raise ValueError("xdata and ydata must have the same length")
+
+    order = np.argsort(xdata)
+    xdata, ydata = xdata[order], ydata[order]
+
+    L0 = ydata.max() - ydata.min()
+    b0 = ydata.min()
+    midpoint = ydata.min() + L0 / 2
+    x00 = xdata[np.argmin(np.abs(ydata - midpoint))]
+    # Decreasing transition (y high -> low) needs k > 0; increasing needs k < 0.
+    k0 = 1.0 if ydata[0] > ydata[-1] else -1.0
+
+    p0 = [L0, x00, k0, b0]
+
+    if yerr is None:
+        popt, pcov = curve_fit(sigmoid, xdata, ydata, p0=p0, maxfev=100000)
+    else:
+        yerr = np.asarray(yerr, dtype=float)[order]
+        popt, pcov = curve_fit(
+            sigmoid, xdata, ydata, p0=p0, sigma=yerr,
+            absolute_sigma=True, maxfev=100000,
+        )
+    return popt
+
+
 def lorentzian(x, x0, gamma, A):
         return A * gamma**2 / ((x - x0)**2 + gamma**2)
 
