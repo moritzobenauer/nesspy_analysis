@@ -37,7 +37,30 @@ uv run python -m pytest -q     # quieter output
 uv run python -m pytest tests/test_fitting.py::test_lorentzian_peaks_at_x0  # one test
 ```
 
+## Sweeping a parent directory (`2026/parent_sweeper.py`)
+
+`parent_sweeper.py` runs the order-disorder pipeline over every run subfolder of a
+parent directory and writes a combined `sweep_summary.csv` plus a critical
+supersaturation bar chart. It accepts the following arguments:
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `-i`, `--parent_dir` | `str` (required) | — | Parent directory whose subfolders each hold one run's simulation data. |
+| `-s`, `--skip` | flag | off | Skip runs already analyzed (an `order_disorder_analysis.csv` is present); print when each was analyzed and reuse its existing results in the final summary instead of recomputing. |
+| `-m`, `--min_size` | `int` | `8` | Minimum blue-cluster cardinality kept for the `r(log S)` observable (use `5` for the "larger than four" rule). |
+| `-v`, `--verbose` | flag | off | Print verbose (`INFO`-level) output during analysis. |
+
 ## Changelog
+
+### 0.1.3
+
+- **`parent_sweeper.py`**: added a `--skip` / `-s` flag that skips run folders
+  already containing an `order_disorder_analysis.csv`. Skipped runs print when
+  they were analyzed (from the CSV's modification time) and are left untouched
+  (no re-analysis, no lattice-overview redraw), yet still appear as full rows in
+  the final sweep summary — their thermodynamic parameters are re-parsed from the
+  output headers and their critical supersaturation is read back from
+  `critical_supersat.txt`.
 
 ### 0.1.2
 

@@ -1,6 +1,7 @@
 # This is a sweeper over a parent-parent directory
 
 import logging
+from datetime import datetime
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -11,6 +12,48 @@ import nesspy_analysis as npa
 from analyzing_order_disorder import analyze_directory
 
 logger = logging.getLogger(__name__)
+
+# Output file written by analyze_directory; its presence marks a run as already
+# analyzed for the --skip flag.
+ANALYSIS_CSV = "order_disorder_analysis.csv"
+
+
+def _read_critical_supersat(run_dir: Path) -> float:
+    """Read the critical supersaturation back from ``critical_supersat.txt``.
+
+    The file (written by ``analyze_directory``) has a single line of the form
+    ``critical_supersat (...): <value>``. Returns ``float('nan')`` if the file
+    is missing or unparsable.
+    """
+    txt = run_dir / "critical_supersat.txt"
+    try:
+        line = txt.read_text().strip()
+        return float(line.rsplit(":", 1)[1])
+    except (OSError, ValueError, IndexError):
+        logger.warning("Could not read critical supersaturation from %s", txt)
+        return float("nan")
+
+
+def summarize_skipped(run_dir: Path) -> dict:
+    """Rebuild an ``analyze_directory``-shaped summary for an already-analyzed run.
+
+    Re-parses the thermodynamic parameters from the run's out.csv headers (cheap;
+    no ``get_wq()`` multiprocessing) and reads the previously computed critical
+    supersaturation from ``critical_supersat.txt``, so a skipped run still appears
+    as a full row in the final sweep summary.
+    """
+    analysis_object = npa.DynamicalOrderDisorder(run_dir.name, run_dir)
+    thermos = analysis_object.get_thermos_from_file()
+    return {
+        "directory": run_dir.name,
+        "jhom": thermos.jhom,
+        "jhet": thermos.jhet,
+        "fres": thermos.fres,
+        "dmu": thermos.dmu,
+        "k": thermos.k,
+        "method": thermos.method,
+        "critical_supersat": _read_critical_supersat(run_dir),
+    }
 
 
 def plot_lattice_overviews(run_dir: Path) -> None:
@@ -82,6 +125,14 @@ if __name__ == "__main__":
     )
 
     argparser.add_argument(
+        "-s",
+        "--skip",
+        action="store_true",
+        help="Skip runs already analyzed (an %s is present); reuse their existing "
+        "results in the final summary instead of recomputing." % ANALYSIS_CSV,
+    )
+
+    argparser.add_argument(
         "-m",
         "--min_size",
         type=int,
@@ -111,6 +162,22 @@ if __name__ == "__main__":
     # analyze each subdirectory using the analyzing_order_disorder pipeline
     results = []
     for sub in sub_folders_to_analyze:
+        # --skip: if this run was already analyzed, reuse its results instead of
+        # recomputing (and leave its lattice overview PNGs untouched).
+        analysis_csv = sub / ANALYSIS_CSV
+        if args.skip and analysis_csv.is_file():
+            analyzed_at = datetime.fromtimestamp(analysis_csv.stat().st_mtime)
+            print(
+                f"Skipping {sub.name} (analyzed {analyzed_at:%Y-%m-%d %H:%M:%S})"
+            )
+            try:
+                results.append(summarize_skipped(sub))
+            except Exception as e:
+                logger.warning(
+                    "Could not reuse existing results for %s: %s", sub.name, e
+                )
+            continue
+
         logger.info("=== Analyzing %s ===", sub.name)
         try:
             results.append(analyze_directory(sub, min_size=args.min_size))
