@@ -6,10 +6,19 @@ import nesspy_analysis as npa
 
 logger = logging.getLogger(__name__)
 
+# Shared figure styling. plot_defaults.py sits next to this script (duplicated
+# from the repo root, as in 2025/); fall back silently to matplotlib defaults if
+# it is not importable.
+try:
+    from plot_defaults import set_plot_defaults
+    set_plot_defaults()
+except ImportError:
+    logger.warning("plot_defaults not found; using matplotlib defaults.")
+
 data_path = Path("/Volumes/2025/RETHINKING_SUPERSAT/X_320_Y_80_1.0_D0.0_JHOM_-4.00_F0.0_K1.0")
 
 
-def analyze_directory(data_path: Path) -> dict:
+def analyze_directory(data_path: Path, min_size: int = 8) -> dict:
     """Run the full order-disorder pipeline on a single run directory.
 
     Auto-detects the supersaturation parameters, computes w(q) and the corrected
@@ -33,6 +42,11 @@ def analyze_directory(data_path: Path) -> dict:
     # now calculate wq and the new supersaturation with the parameters
     analysis_object.get_wq()
     data = analysis_object.get_logarithmic_supersat_corrected(thermos)
+
+    # per-mu wrong-bond fraction <q> and normalized blue cluster size <r>, so the
+    # m=0 regime can be split into truly-mixed (high q, small r) vs
+    # flopping-domain (lower q, large r) states.
+    data = analysis_object.get_cluster_observables(min_size=min_size)
     data = data.sort_values(by='mu')
     logger.info("\n%s", data)
 
@@ -99,7 +113,14 @@ def analyze_directory(data_path: Path) -> dict:
     fig.tight_layout()
     fig.savefig(data_path / "order_parameter_vs_supersat.png", dpi=300)
     plt.close(fig)
-    logger.info("Saved results and plot to %s", data_path)
+
+    # combined q(log S) / r(log S) figure
+    fig, _ = npa.plot_cluster_observables(
+        data, critical_supersat=critical_supersat, min_size=min_size
+    )
+    fig.savefig(data_path / "cluster_observables_vs_supersat.png", dpi=300)
+    plt.close(fig)
+    logger.info("Saved results and plots to %s", data_path)
 
     return {
         "directory": data_path.name,

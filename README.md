@@ -25,6 +25,18 @@ DynamicalOrderDisorder.get_oder_parameters()
 ### Multiple Simulations
 To easily get the raw output data from multiple simulations an instance of the class `MultipleSimulations` can be initiated and the `get_raw_data()` method returns the a combined data frame.
 
+## Testing
+
+Unit tests live in `tests/` and run entirely offline (they synthesise the small
+lattices and `out.csv` files they need, so no external data volume is required).
+`pytest` is a dev dependency installed by `uv sync`:
+
+```bash
+uv run python -m pytest        # run the whole suite
+uv run python -m pytest -q     # quieter output
+uv run python -m pytest tests/test_fitting.py::test_lorentzian_peaks_at_x0  # one test
+```
+
 ## Changelog
 
 ### 0.1.2

@@ -172,6 +172,42 @@ def _process_lattice_file(args):
     return mu_value, p11, p22, p12, n_ones, n_twos
 
 
+def _process_cluster_observables_file(args):
+    """Pool worker: per-lattice wrong-bond fraction q and blue cluster size r.
+
+    Must be a top-level (picklable) function taking a single argument. Returns
+    ``(mu_value, q_frac, r_norm)`` for one lattice_final.npy, both measured over
+    the column band ``[lb_frac, ub_frac] * Lx``:
+
+    * ``q_frac`` -- fraction of 1-2 ("wrong") bonds over all counted bonds; NaN
+      if the cropped lattice has no bonds at all.
+    * ``r_norm`` -- mean size of blue (value 2) 4-connected clusters with
+      cardinality ``>= min_size``, normalized by the cropped lattice area; 0.0
+      when no cluster clears the threshold.
+    """
+    from scipy.ndimage import label
+
+    mu_value, filex, lb_frac, ub_frac, min_size = args
+    lattice = np.load(filex)
+    Lx = lattice.shape[1]
+    cropped = lattice[:, int(lb_frac * Lx):int(ub_frac * Lx)]
+
+    # q: fraction of wrong (1-2) bonds. Same bond counting as get_wq(), but kept
+    # per-lattice so the caller can report a mean and SEM across lattices.
+    p11, p22, p12, _, _ = _count_lattice_pairs(cropped)
+    total_bonds = p11 + p22 + p12
+    q_frac = p12 / total_bonds if total_bonds > 0 else np.nan
+
+    # r: normalized mean blue cluster size (4-connectivity).
+    structure = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])
+    labeled, num = label(cropped == 2, structure)
+    sizes = [s for s in (np.sum(labeled == idx) for idx in range(1, num + 1)) if s >= min_size]
+    area = cropped.shape[0] * cropped.shape[1]
+    r_norm = (np.mean(sizes) / area) if sizes else 0.0
+
+    return mu_value, q_frac, r_norm
+
+
 class MultipleSimulations:
     def __init__(self, name: str, base_paths: list[Path]):
         self.name = name
@@ -209,6 +245,7 @@ class DynamicalOrderDisorder:
 
         self.data = pd.DataFrame()
         self.wq_data = None
+        self.cluster_data = None
         self.sigmoid_params = None
         self.critical_supersat = None
         self.files, self.csv_file_number = iterdirs(self.base_path)
@@ -476,6 +513,105 @@ class DynamicalOrderDisorder:
                 len(unmatched),
                 tolerance,
                 unmatched[["mu"]],
+            )
+
+        return self.data
+
+    def get_cluster_observables(
+        self,
+        lb_frac: float = 0.2,
+        ub_frac: float = 0.7,
+        min_size: int = 8,
+        tolerance: float = 0.01,
+    ) -> pd.DataFrame:
+        """Per-mu wrong-bond fraction <q> and normalized blue cluster size <r>.
+
+        Walks every ``lattice_final.npy`` under each mu-named subfolder of
+        ``base_path`` (in parallel) and computes two per-lattice observables over
+        the column band ``[lb_frac, ub_frac] * Lx``:
+
+        * ``q`` -- the fraction of 1-2 ("wrong") bonds, and
+        * ``r`` -- the mean size of blue (value 2) 4-connected clusters with
+          cardinality ``>= min_size``, normalized by the cropped lattice area.
+
+        For each mu it reports the mean and SEM across lattices, so ``q``/``r``
+        carry error bars (unlike the pooled fraction returned by :meth:`get_wq`).
+        This disambiguates the ``m = 0`` regime: a truly mixed state has high
+        ``q`` and small ``r``, whereas flopping finite domains keep ``q`` lower
+        and ``r`` large. The ``q_mean``/``q_sem``/``r_mean``/``r_sem`` columns are
+        merged onto ``self.data`` with a nearest-mu join (guarded by
+        ``tolerance``) so they line up with ``dphi`` for q(log(S)) / r(log(S))
+        plots.
+
+        ``min_size`` is the minimum cluster cardinality kept (default 8; set to 5
+        to reproduce the "larger than four" rule). Populates ``self.data``
+        (running :meth:`get_data` first if needed) and caches the per-mu table on
+        ``self.cluster_data``. Returns ``self.data``.
+        """
+        if self.data.empty:
+            self.get_data()
+
+        tasks = []
+        for mu_folder in self.base_path.glob("*"):
+            if not mu_folder.is_dir():
+                continue
+            try:
+                mu_value = float(mu_folder.name)
+            except ValueError:
+                continue
+            for filex in mu_folder.glob("**/lattice_final.npy"):
+                tasks.append((mu_value, filex, lb_frac, ub_frac, min_size))
+
+        if not tasks:
+            raise ValueError(
+                f"No lattice_final.npy files found under {self.base_path}"
+            )
+
+        logger.info(
+            "Processing %d lattice files for cluster observables (min_size=%d)...",
+            len(tasks), min_size,
+        )
+        with Pool() as pool:
+            results = pool.map(_process_cluster_observables_file, tasks)
+
+        # Group per-lattice values back by mu so we can average with a SEM.
+        per_mu = {}  # mu_value -> ([q...], [r...])
+        for mu_value, q_frac, r_norm in results:
+            q_list, r_list = per_mu.setdefault(mu_value, ([], []))
+            if not np.isnan(q_frac):
+                q_list.append(q_frac)
+            r_list.append(r_norm)
+
+        records = []
+        for mu_value in sorted(per_mu):
+            q_vals, r_vals = per_mu[mu_value]
+            records.append(
+                {
+                    "mu_value": mu_value,
+                    "q_mean": np.mean(q_vals) if q_vals else np.nan,
+                    "q_sem": sem(q_vals) if len(q_vals) > 1 else 0.0,
+                    "r_mean": np.mean(r_vals) if r_vals else np.nan,
+                    "r_sem": sem(r_vals) if len(r_vals) > 1 else 0.0,
+                }
+            )
+
+        self.cluster_data = pd.DataFrame(records).sort_values(by="mu_value")
+
+        self.data = pd.merge_asof(
+            self.data.sort_values(by="mu"),
+            self.cluster_data,
+            left_on="mu",
+            right_on="mu_value",
+            direction="nearest",
+            tolerance=tolerance,
+        )
+        self.data.drop(columns=["mu_value"], inplace=True)
+
+        unmatched = self.data[self.data["q_mean"].isna()]
+        if not unmatched.empty:
+            logger.warning(
+                "%d row(s) had no cluster-observable match within tolerance %s:\n%s",
+                len(unmatched), tolerance, unmatched[["mu"]],
             )
 
         return self.data

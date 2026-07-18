@@ -82,6 +82,87 @@ def calculate_average_cluster_size(lattice: np.array, lb_trr: float = 0.3, ub_tr
 
     
 
+def _plot_observable_vs_logS(data, ycol, yerrcol, ylabel, ax=None,
+                             color="#333333", label=None, **kwargs):
+    """Shared errorbar plot of a per-mu observable against log(S) = dphi.
+
+    ``data`` is a DataFrame carrying ``dphi`` plus the requested ``ycol``/
+    ``yerrcol`` columns (produced by
+    DynamicalOrderDisorder.get_logarithmic_supersat_corrected() and
+    .get_cluster_observables()). Rows missing dphi or the observable are dropped.
+    Returns ``(fig, ax)``.
+    """
+    _df = data.dropna(subset=["dphi", ycol]).sort_values(by="dphi")
+    if ax is None:
+        fig, ax = plt.subplots()
+    else:
+        fig = ax.figure
+    ax.errorbar(
+        _df["dphi"], _df[ycol],
+        yerr=_df[yerrcol] if yerrcol in _df.columns else None,
+        fmt="o-", color=color, label=label, capsize=3, **kwargs,
+    )
+    ax.set_xlabel(r"$\log(S)$")
+    ax.set_ylabel(ylabel)
+    if label is not None:
+        ax.legend()
+    return (fig, ax)
+
+
+def plot_q_vs_logS(data, ax=None, color="#ce3627", label=None, **kwargs):
+    """Wrong-bond fraction q against corrected log-supersaturation log(S).
+
+    Expects ``dphi``, ``q_mean`` and ``q_sem`` columns (see
+    DynamicalOrderDisorder.get_cluster_observables()). Returns ``(fig, ax)``.
+    """
+    return _plot_observable_vs_logS(
+        data, "q_mean", "q_sem", r"$q$ (wrong-bond fraction)",
+        ax=ax, color=color, label=label, **kwargs,
+    )
+
+
+def plot_r_vs_logS(data, ax=None, color="#5652a3", label=None, **kwargs):
+    """Normalized blue cluster size r against corrected log-supersaturation.
+
+    Expects ``dphi``, ``r_mean`` and ``r_sem`` columns (see
+    DynamicalOrderDisorder.get_cluster_observables()). Returns ``(fig, ax)``.
+    """
+    return _plot_observable_vs_logS(
+        data, "r_mean", "r_sem", r"$r$ (norm. cluster size)",
+        ax=ax, color=color, label=label, **kwargs,
+    )
+
+
+def plot_cluster_observables(data, critical_supersat=None, min_size=None):
+    """Two-panel q(log S) / r(log S) figure disambiguating the m=0 regime.
+
+    Left panel: wrong-bond fraction ``q``; right panel: normalized blue cluster
+    size ``r`` -- both against log(S) = ``dphi`` with SEM error bars. Expects the
+    columns added by DynamicalOrderDisorder.get_logarithmic_supersat_corrected()
+    and .get_cluster_observables(). If ``critical_supersat`` is given, a dashed
+    marker is drawn on both panels; ``min_size`` (if given) is noted in the r
+    panel title. Styling follows whatever rcParams are active (e.g. after
+    ``set_plot_defaults()``). Returns ``(fig, axes)``.
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    plot_q_vs_logS(data, ax=axes[0])
+    plot_r_vs_logS(data, ax=axes[1])
+
+    if critical_supersat is not None:
+        for ax in axes:
+            ax.axvline(
+                critical_supersat, color="tab:red", linestyle="--",
+                label=rf"$\Delta\phi_c = {critical_supersat:.3f}$",
+            )
+            ax.legend()
+
+    if min_size is not None:
+        axes[1].set_title(rf"blue clusters, $|C| \geq {min_size}$")
+
+    fig.tight_layout()
+    return (fig, axes)
+
+
 def plot_all_configurations(files: list[Path]) -> tuple[plt.Figure, np.array]:
     N = len(files)
     cols = int(np.ceil(np.sqrt(N)))

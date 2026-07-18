@@ -81,6 +81,15 @@ if __name__ == "__main__":
         help="Print verbose output during analysis.",
     )
 
+    argparser.add_argument(
+        "-m",
+        "--min_size",
+        type=int,
+        default=8,
+        help="Minimum blue-cluster cardinality kept for the r(log S) observable "
+        "(default: 8; use 5 for the 'larger than four' rule).",
+    )
+
     args = argparser.parse_args()
 
     # --verbose -> INFO logging; otherwise stay mostly silent (warnings + the
@@ -104,7 +113,7 @@ if __name__ == "__main__":
     for sub in sub_folders_to_analyze:
         logger.info("=== Analyzing %s ===", sub.name)
         try:
-            results.append(analyze_directory(sub))
+            results.append(analyze_directory(sub, min_size=args.min_size))
         except Exception as e:
             # A subfolder may not be a valid run directory (e.g. no out.csv),
             # or the sigmoid fit may fail; skip it and keep sweeping.
