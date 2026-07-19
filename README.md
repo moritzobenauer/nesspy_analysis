@@ -52,6 +52,15 @@ supersaturation bar chart. It accepts the following arguments:
 
 ## Changelog
 
+### 0.1.4
+
+- **Bugfix (`Thermos`)**: the `epsilon_matrix` is now derived from `jhom`/`jhet`
+  (diagonal = `jhom`, off-diagonal = `jhet`) instead of keeping a hardcoded
+  default. Previously a `Thermos` built with detected couplings (e.g. from
+  `get_thermos_from_file()`) kept a stale `[[-3.5, -2.0], [-2.0, -3.5]]` matrix
+  regardless of the actual `jhom`. An explicitly-passed `epsilon_matrix` still
+  overrides the derived one.
+
 ### 0.1.3
 
 - **`parent_sweeper.py`**: added a `--skip` / `-s` flag that skips run folders

@@ -26,9 +26,21 @@ class Thermos:
     method: str = "NODRIVE"
 
     # In the future it might be even more useful to provide an interaction matrix
-    # for more complex systems.
+    # for more complex systems. By default it is derived from jhom/jhet in
+    # __post_init__ (diagonal = jhom, off-diagonal = jhet); pass it explicitly to
+    # override.
+    epsilon_matrix: np.array = None
 
-    epsilon_matrix: np.array = field(default_factory=lambda: np.array([[-3.5, -2.0], [-2.0, -3.5]]))
+    def __post_init__(self):
+        # frozen dataclass -> assign via object.__setattr__. Only build the
+        # matrix from jhom/jhet when the caller didn't supply one, so the
+        # interaction matrix stays consistent with the detected couplings.
+        if self.epsilon_matrix is None:
+            object.__setattr__(
+                self,
+                "epsilon_matrix",
+                np.array([[self.jhom, self.jhet], [self.jhet, self.jhom]]),
+            )
 
 
 @dataclass(kw_only=True)
