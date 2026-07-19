@@ -25,6 +25,11 @@ def get_data_point_from_out_file(file: Path, n_samples: int, bootstrap: bool=Tru
     df = df.apply(pd.to_numeric, errors="coerce")
     df = df.dropna(how="all")
 
+    # An out.csv with a header but no measurement rows leaves nothing to
+    # aggregate; signal it so callers can skip this mu.
+    if df.empty:
+        raise ValueError(f"No measurement rows in {file}")
+
     if bootstrap:
         # df = df.sample(n_samples, random_state=np.random.randint(0, 10000), replace=True)
         df = df.sample(frac=n_samples, random_state=np.random.randint(0, 10000), replace=True)
@@ -172,8 +177,10 @@ def read_csv(file: Path, n_samples: int=6, bootstrap: bool=True) -> tuple[pd.Dat
 
         data_points = get_data_point_from_out_file(file, n_samples, bootstrap=bootstrap)
 
-    except ValueError:
-        print(f"Error reading file {file}")
+    except ValueError as e:
+        # An empty out.csv (no measurement rows) leaves data_points unbound and
+        # cannot be analyzed; re-raise with context so callers can skip this mu.
+        raise ValueError(f"No usable data in file {file}: {e}") from e
 
     if data_points["rsw_check"].values.any() == False:
         raise ValueError(f"RSW values are not consistent in file {file}")

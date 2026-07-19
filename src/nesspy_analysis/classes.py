@@ -431,7 +431,13 @@ class DynamicalOrderDisorder:
 
     def get_data(self) -> pd.DataFrame:
         for f in self.files:
-            self.df, header = read_csv(f, n_samples=1.0, bootstrap=False)
+            try:
+                self.df, header = read_csv(f, n_samples=1.0, bootstrap=False)
+            except ValueError as e:
+                # e.g. an out.csv for some mu that contains no measurement rows;
+                # skip that mu and keep going so the run still analyzes.
+                logger.warning("Skipping %s: %s", f, e)
+                continue
             self.data = pd.concat([self.data, self.df], ignore_index=True)
 
         return self.data

@@ -52,6 +52,14 @@ supersaturation bar chart. It accepts the following arguments:
 
 ## Changelog
 
+### 0.1.5
+
+- **Bugfix (empty `out.csv`)**: a mu folder whose `out.csv` has no usable
+  measurement rows no longer crashes the whole run. `read_csv` now raises a
+  clear `ValueError` (instead of an `UnboundLocalError` / `IndexError`), and
+  `DynamicalOrderDisorder.get_data()` logs a `Skipping <file>` warning and
+  continues, so the remaining mu values are still analyzed.
+
 ### 0.1.4
 
 - **Bugfix (`Thermos`)**: the `epsilon_matrix` is now derived from `jhom`/`jhet`
