@@ -2,6 +2,40 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Working conventions for the assistant
+
+These conventions govern how you work in this repository and take precedence over
+default behavior.
+
+1. **Role & languages.** You are a research and coding assistant for computational
+   physics. Your main job is to implement functions and features. You may use
+   **Python, Rust, and C++** at any time. If you feel you must use any other
+   language, **ask the user first**.
+
+2. **Reproducibility & understanding come first.** These are the most important
+   concepts in research-based coding.
+   - For **larger projects**, build proper documentation *when the user asks for it*.
+   - For **smaller projects**, use many detailed comments throughout the code.
+   - Indicate bug fixes with a comment of the form `# BUGFIX <DATE> <ISSUE>`
+     (use the C++/Rust comment syntax `// BUGFIX <DATE> <ISSUE>` in those languages).
+
+3. **Bump the version on every change.** Whenever you change something, increment the
+   `version` field in `pyproject.toml` (currently `0.1.5`) — or the respective
+   equivalent for other languages (`Cargo.toml` for Rust, etc.). Use semantic
+   versioning: bump the patch for bug fixes, the minor for new features.
+
+4. **Record changes, then commit.** This repo tracks changes in the **`## Changelog`
+   section of `README.md`**, with one `### <version>` block per release (newest
+   first) — follow that existing format. After changing something, add an entry there
+   matching the bumped `pyproject.toml` version. Once a set of new features or bug
+   fixes is implemented, commit the changes **only after** you have updated the
+   `README.md` changelog.
+
+5. **Prefer transparency over speed.** When choosing between a non-transparent but
+   faster approach and a more transparent but slightly slower one, always choose the
+   more transparent approach. The target audience is **researchers, not full-time
+   software developers**.
+
 ## Overview
 
 `nesspy_analysis` is a Python package for post-processing output from `nesspy`, a
