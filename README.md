@@ -48,9 +48,32 @@ supersaturation bar chart. It accepts the following arguments:
 | `-i`, `--parent_dir` | `str` (required) | — | Parent directory whose subfolders each hold one run's simulation data. |
 | `-s`, `--skip` | flag | off | Skip runs already analyzed (an `order_disorder_analysis.csv` is present); print when each was analyzed and reuse its existing results in the final summary instead of recomputing. |
 | `-m`, `--min_size` | `int` | `8` | Minimum blue-cluster cardinality kept for the `r(log S)` observable (use `5` for the "larger than four" rule). |
+| `--speed` | flag | off | Also report the interface growth speed at the critical supersaturation (`growth_speed_at_critical` / `dgrowth_speed_at_critical` columns + a `sweep_growth_speed.png` bar chart). |
+| `--wq` / `--no-wq` | flag | on | Run the expensive $w(q)$ lattice scan (default). Use `--no-wq` to skip it and instead reuse cached $w(q)$ results (`order_disorder_analysis.csv` / `critical_supersat.txt`) to locate the critical supersaturation; a warning is logged for runs with no cache. |
+| `--vis` | flag | off | Render the (slow) lattice-overview grids for each run. Off by default so a sweep skips the tiling of every `lattice_final.npy` unless requested. |
 | `-v`, `--verbose` | flag | off | Print verbose (`INFO`-level) output during analysis. |
 
 ## Changelog
+
+### 0.3.0
+
+- **Growth speed in the sweep summary (`--speed`)**: `2026/parent_sweeper.py`
+  gained a `--speed` flag that adds `growth_speed_at_critical` /
+  `dgrowth_speed_at_critical` columns to `sweep_summary.csv` (and a companion
+  `sweep_growth_speed.png` bar chart). The reported value is the per-mu interface
+  growth speed (`2·L_y²/⟨t⟩`, computed in `read_csv.py`) at the sampled point
+  whose `dphi` is closest to the critical supersaturation — the nearest raw data
+  point, not an interpolation. `analyze_directory` grew a `compute_speed`
+  argument and a `growth_speed_at_critical()` helper.
+- **Separable w(q) (`--no-wq`)**: the expensive w(q) lattice scan now runs by
+  default but can be skipped with `--no-wq`. In that mode `analyze_directory`
+  reuses the cached `order_disorder_analysis.csv` / `critical_supersat.txt`
+  (leaving them untouched) to place the critical supersaturation and report the
+  growth speed there; if no cache exists it warns that w(q) needs to be run.
+  `_read_critical_supersat` moved into `2026/analyzing_order_disorder.py` as
+  `read_critical_supersat` (single source of truth, imported by the sweeper).
+- **Optional lattice overviews (`--vis`)**: the slow lattice-overview rendering
+  (`plot_lattice_overviews`) is now off by default and only runs with `--vis`.
 
 ### 0.2.0
 

@@ -9,56 +9,33 @@ from pathlib import Path
 import argparse
 import nesspy_analysis as npa
 
-from analyzing_order_disorder import analyze_directory
+from analyzing_order_disorder import (
+    ANALYSIS_CSV,
+    analyze_directory,
+    growth_speed_at_critical,
+    read_critical_supersat,
+)
 
 logger = logging.getLogger(__name__)
 
-# Output file written by analyze_directory; its presence marks a run as already
-# analyzed for the --skip flag.
-ANALYSIS_CSV = "order_disorder_analysis.csv"
 
-
-def _read_critical_supersat(run_dir: Path) -> tuple[float, float]:
-    """Read the critical supersaturation (+ error) from ``critical_supersat.txt``.
-
-    The file (written by ``analyze_directory``) has two lines of the form
-    ``critical_supersat (...): <value>`` and
-    ``critical_supersat_error (...): <error>``. Returns ``(value, error)``, with
-    ``float('nan')`` for either field that is missing or unparsable (older files
-    written before the error was added have no second line, so their error comes
-    back as NaN).
-    """
-    txt = run_dir / "critical_supersat.txt"
-
-    def _parse(line: str) -> float:
-        try:
-            return float(line.rsplit(":", 1)[1])
-        except (ValueError, IndexError):
-            return float("nan")
-
-    try:
-        lines = txt.read_text().strip().splitlines()
-    except OSError:
-        logger.warning("Could not read critical supersaturation from %s", txt)
-        return float("nan"), float("nan")
-
-    value = _parse(lines[0]) if len(lines) >= 1 else float("nan")
-    error = _parse(lines[1]) if len(lines) >= 2 else float("nan")
-    return value, error
-
-
-def summarize_skipped(run_dir: Path) -> dict:
+def summarize_skipped(run_dir: Path, compute_speed: bool = False) -> dict:
     """Rebuild an ``analyze_directory``-shaped summary for an already-analyzed run.
 
     Re-parses the thermodynamic parameters from the run's out.csv headers (cheap;
     no ``get_wq()`` multiprocessing) and reads the previously computed critical
     supersaturation from ``critical_supersat.txt``, so a skipped run still appears
     as a full row in the final sweep summary.
+
+    When ``compute_speed`` is set, the growth speed at the critical
+    supersaturation is recovered from the cached ``order_disorder_analysis.csv``
+    (which already holds per-mu ``dphi`` and ``growth_speed``), keeping the
+    skipped rows consistent with the freshly analyzed ones.
     """
     analysis_object = npa.DynamicalOrderDisorder(run_dir.name, run_dir)
     thermos = analysis_object.get_thermos_from_file()
-    critical_supersat, critical_supersat_err = _read_critical_supersat(run_dir)
-    return {
+    critical_supersat, critical_supersat_err = read_critical_supersat(run_dir)
+    summary = {
         "directory": run_dir.name,
         "jhom": thermos.jhom,
         "jhet": thermos.jhet,
@@ -69,6 +46,15 @@ def summarize_skipped(run_dir: Path) -> dict:
         "critical_supersat": critical_supersat,
         "critical_supersat_err": critical_supersat_err,
     }
+    if compute_speed:
+        gs, dgs = float("nan"), float("nan")
+        cached_csv = run_dir / ANALYSIS_CSV
+        if cached_csv.is_file():
+            cached = pd.read_csv(cached_csv)
+            gs, dgs = growth_speed_at_critical(cached, critical_supersat)
+        summary["growth_speed_at_critical"] = gs
+        summary["dgrowth_speed_at_critical"] = dgs
+    return summary
 
 
 def plot_lattice_overviews(run_dir: Path) -> None:
@@ -156,6 +142,33 @@ if __name__ == "__main__":
         "(default: 8; use 5 for the 'larger than four' rule).",
     )
 
+    argparser.add_argument(
+        "--speed",
+        action="store_true",
+        help="Also report the interface growth speed at the critical "
+        "supersaturation (+ error) in the sweep summary.",
+    )
+
+    # w(q) is the expensive part (a multiprocessing lattice scan). It runs by
+    # default; --no-wq skips it and instead reuses any cached w(q) results on
+    # disk to locate the critical supersaturation (warning if none exist).
+    argparser.add_argument(
+        "--wq",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run the expensive w(q) lattice scan (default: on). Use --no-wq to "
+        "skip it and reuse cached w(q) results instead.",
+    )
+
+    # Lattice-overview rendering is also slow (it tiles every lattice_final.npy),
+    # so it is off unless explicitly requested.
+    argparser.add_argument(
+        "--vis",
+        action="store_true",
+        help="Render the lattice-overview grids for each run (slow; off by "
+        "default).",
+    )
+
     args = argparser.parse_args()
 
     # --verbose -> INFO logging; otherwise stay mostly silent (warnings + the
@@ -186,7 +199,7 @@ if __name__ == "__main__":
                 f"Skipping {sub.name} (analyzed {analyzed_at:%Y-%m-%d %H:%M:%S})"
             )
             try:
-                results.append(summarize_skipped(sub))
+                results.append(summarize_skipped(sub, compute_speed=args.speed))
             except Exception as e:
                 logger.warning(
                     "Could not reuse existing results for %s: %s", sub.name, e
@@ -195,19 +208,27 @@ if __name__ == "__main__":
 
         logger.info("=== Analyzing %s ===", sub.name)
         try:
-            results.append(analyze_directory(sub, min_size=args.min_size))
+            results.append(
+                analyze_directory(
+                    sub,
+                    min_size=args.min_size,
+                    run_wq=args.wq,
+                    compute_speed=args.speed,
+                )
+            )
         except Exception as e:
             # A subfolder may not be a valid run directory (e.g. no out.csv),
             # or the sigmoid fit may fail; skip it and keep sweeping.
             logger.warning("Skipping %s: %s", sub.name, e)
 
-        # plot the final-lattice overviews regardless of whether the
-        # order-disorder analysis above succeeded, so the lattices can always
-        # be eyeballed.
-        try:
-            plot_lattice_overviews(sub)
-        except Exception as e:
-            logger.warning("Could not plot lattice overviews for %s: %s", sub.name, e)
+        # plot the final-lattice overviews (slow) only when --vis is passed, so
+        # the lattices can be eyeballed on demand without paying the cost every
+        # sweep.
+        if args.vis:
+            try:
+                plot_lattice_overviews(sub)
+            except Exception as e:
+                logger.warning("Could not plot lattice overviews for %s: %s", sub.name, e)
 
     if not results:
         raise SystemExit(f"No subdirectories under {parent_dir} could be analyzed.")
@@ -234,5 +255,23 @@ if __name__ == "__main__":
     fig.tight_layout()
     fig.savefig(parent_dir / "sweep_critical_supersat.png", dpi=300)
     plt.close(fig)
+
+    # companion bar chart of the growth speed at the critical supersaturation,
+    # mirroring the plot above (only when --speed populated those columns).
+    if args.speed and "growth_speed_at_critical" in summary.columns:
+        fig, ax = plt.subplots(figsize=(max(6, len(summary) * 0.6), 5))
+        ax.bar(
+            summary["directory"],
+            summary["growth_speed_at_critical"],
+            yerr=summary["dgrowth_speed_at_critical"],
+            capsize=4,
+            color="tab:green",
+        )
+        ax.set_ylabel(r"Growth speed at $\Delta\phi_c$  $\langle v \rangle$")
+        ax.set_xlabel("Run directory")
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
+        fig.tight_layout()
+        fig.savefig(parent_dir / "sweep_growth_speed.png", dpi=300)
+        plt.close(fig)
 
     print(f"\nSaved sweep summary and plot to {parent_dir}")
