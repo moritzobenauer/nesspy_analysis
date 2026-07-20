@@ -55,6 +55,37 @@ supersaturation bar chart. It accepts the following arguments:
 
 ## Changelog
 
+### 0.4.2
+
+- **Graceful non-interactive fallback**: `2026/read_summary_and_plot_overviews.py`
+  now checks that stdin is a terminal before opening the `questionary` checkbox
+  (which crashes under a piped/non-tty stdin) and exits with a message pointing to
+  `--all` instead of a traceback.
+
+### 0.4.1
+
+- **Star the transition-point growth speed**: `2026/read_summary_and_plot_overviews.py`
+  now marks the growth speed at each dataset's critical supersaturation (read from
+  `sweep_summary.csv`'s `critical_supersat`) with a star on both the per-dataset
+  and combined growth-speed figures. The starred value reuses
+  `analyzing_order_disorder.growth_speed_at_critical` (nearest sampled raw point),
+  so it matches `sweep_summary.csv`. Datasets with no critical value simply omit
+  the star.
+
+### 0.4.0
+
+- **Overview plotting (`2026/read_summary_and_plot_overviews.py`)**: a new script
+  that reads a parent sweep's `sweep_summary.csv`, lets the user pick which
+  analyzed datasets to include via an interactive `questionary` checkbox
+  (`--all` skips the menu), and plots the growth speed and order parameter as a
+  function of the logarithmic supersaturation `dphi = log S`. For each selected
+  dataset it saves per-dataset figures (`growth_speed_vs_supersat.png`,
+  `order_parameter_vs_supersat.png`, growth speed on a log y axis) next to that
+  dataset, plus combined overlay figures across all selections
+  (`overview_growth_speed_vs_supersat.png`,
+  `overview_order_parameter_vs_supersat.png`) in the parent directory. Adds
+  `questionary` as a dependency.
+
 ### 0.3.0
 
 - **Growth speed in the sweep summary (`--speed`)**: `2026/parent_sweeper.py`
