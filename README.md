@@ -52,6 +52,38 @@ supersaturation bar chart. It accepts the following arguments:
 
 ## Changelog
 
+### 0.2.0
+
+- **Error on the critical supersaturation**: `DynamicalOrderDisorder.get_critical_supersat()`
+  now returns `[value, error]` (was a bare float) and caches the error on
+  `self.critical_supersat_err`. The error is a *sampling-resolution* estimate —
+  the average distance from the sigmoid inflection point to the nearest sampled
+  `dphi` above and below it (equivalently, half the width of the bracketing
+  interval), so dense sweeps get a small error and sparse sweeps a large one. If
+  the inflection point falls outside the sampled range the one available side is
+  used and a warning is logged.
+- **Covariance error (complementary)**: `fit_sigmoid` gained a `return_cov`
+  option, and `get_critical_supersat()` now also caches the *statistical* error
+  on the inflection point from the fit covariance matrix (`sqrt(pcov[1, 1])`) on
+  `self.critical_supersat_cov_err` (NaN if the fit is unconstrained). Unlike the
+  resolution error, this shrinks with clean/plentiful data rather than with grid
+  density; it is computed but not the returned value.
+- **Tests**: `tests/test_critical_supersat.py` covers both errors on synthetic
+  sigmoid data — the resolution error equals half the local grid spacing, halves
+  when sampling doubles, is noise-insensitive, and goes one-sided when
+  extrapolated; the covariance error is ~0 for clean data and grows monotonically
+  with noise.
+- **CI**: `.github/workflows/tests.yml` runs the `uv run pytest` suite on every
+  push and pull request (uv-managed, Python 3.12).
+- **`2026/analyzing_order_disorder.py`**: writes the error as a second line in
+  `critical_supersat.txt`, adds a `critical_supersat_err` column to
+  `order_disorder_analysis`'s summary dict, and shades the ±error band around
+  the critical line in the order-parameter / susceptibility figure.
+- **`2026/parent_sweeper.py`**: the sweep summary CSV gains a
+  `critical_supersat_err` column and the bar chart draws the error bars;
+  `_read_critical_supersat` now parses both lines back (older single-line files
+  report the error as `NaN`).
+
 ### 0.1.5
 
 - **Bugfix (empty `out.csv`)**: a mu folder whose `out.csv` has no usable

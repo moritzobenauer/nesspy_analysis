@@ -260,6 +260,8 @@ class DynamicalOrderDisorder:
         self.cluster_data = None
         self.sigmoid_params = None
         self.critical_supersat = None
+        self.critical_supersat_err = None
+        self.critical_supersat_cov_err = None
         self.files, self.csv_file_number = iterdirs(self.base_path)
 
         logging.info(
@@ -682,16 +684,36 @@ class DynamicalOrderDisorder:
         self.data["dphi"] = self.data["mu"].map(dphi_by_mu)
         return self.data
 
-    def get_critical_supersat(self) -> float:
-        """Critical supersaturation from a sigmoidal fit of m vs log(S).
+    def get_critical_supersat(self) -> list[float, float]:
+        """Critical supersaturation (± error) from a sigmoidal fit of m vs log(S).
 
         Fits the order parameter ``m`` against the corrected logarithmic
         supersaturation ``dphi`` to a four-parameter logistic and returns its
-        inflection point (the critical supersaturation). Requires
-        :meth:`get_logarithmic_supersat_corrected` to have been run first.
+        inflection point (the critical supersaturation) together with an error
+        estimate. Requires :meth:`get_logarithmic_supersat_corrected` to have
+        been run first.
 
-        Caches the fit on ``self.sigmoid_params`` and the result on
-        ``self.critical_supersat``.
+        The reported error is a *sampling-resolution* estimate: the average of
+        the distances from the inflection point ``x0`` to the nearest sampled
+        ``dphi`` point above and below it. When ``x0`` lies between two sampled
+        points this equals half the width of the bracketing interval, so densely
+        sampled sweeps get a small error and sparse sweeps a large one. It
+        captures how finely the transition was sampled, not the statistical
+        scatter of the fit. If ``x0`` falls outside the sampled range (an
+        extrapolated fit) only the one available side is used and a warning is
+        logged.
+
+        The complementary *statistical* error -- the standard error on x0 from
+        ``curve_fit``'s covariance matrix (``sqrt(pcov[1, 1])``), which shrinks
+        with clean/plentiful data rather than with grid density -- is also
+        computed and cached on ``self.critical_supersat_cov_err`` (NaN if the fit
+        is unconstrained), but is not the returned value.
+
+        Caches the fit on ``self.sigmoid_params``, the value on
+        ``self.critical_supersat``, the resolution error on
+        ``self.critical_supersat_err`` and the covariance error on
+        ``self.critical_supersat_cov_err``. Returns
+        ``[value, resolution_error]``.
         """
         required = {"dphi", "m"}
         if self.data.empty or not required.issubset(self.data.columns):
@@ -700,11 +722,56 @@ class DynamicalOrderDisorder:
             )
 
         _df = self.data.dropna(subset=["dphi", "m"]).sort_values(by="dphi")
-        popt = fit_sigmoid(_df["dphi"].values, _df["m"].values)
+        popt, pcov = fit_sigmoid(_df["dphi"].values, _df["m"].values, return_cov=True)
 
         # popt = [L, x0, k, b]; the inflection point of the logistic is x0.
         self.sigmoid_params = popt
-        self.critical_supersat = float(popt[1])
+        x0 = float(popt[1])
+        self.critical_supersat = x0
 
-        logger.info("Critical supersaturation (inflection point): %.6f", self.critical_supersat)
-        return self.critical_supersat
+        # Statistical error on x0 from the fit covariance matrix (variance is the
+        # [1, 1] entry). Guard against the unconstrained-fit case where curve_fit
+        # returns inf/negative variances.
+        var_x0 = pcov[1, 1]
+        self.critical_supersat_cov_err = (
+            float(np.sqrt(var_x0)) if np.isfinite(var_x0) and var_x0 >= 0
+            else float("nan")
+        )
+
+        # Sampling-resolution error: mean distance from x0 to the nearest
+        # sampled dphi on each side (strict </> so an x0 landing exactly on a
+        # data point still measures the spacing to its neighbours).
+        dphi_sorted = np.unique(_df["dphi"].values)
+        below = dphi_sorted[dphi_sorted < x0]
+        above = dphi_sorted[dphi_sorted > x0]
+        if below.size and above.size:
+            # x0 brackets two data points -> average of both gaps
+            # (= half the bracketing interval width).
+            err = 0.5 * ((above[0] - x0) + (x0 - below[-1]))
+        elif above.size:
+            # x0 sits below the sampled range: only an upper neighbour exists.
+            logger.warning(
+                "Inflection point %.6f is below the sampled dphi range; "
+                "using one-sided (upper) spacing as its error.", x0
+            )
+            err = float(above[0] - x0)
+        elif below.size:
+            # x0 sits above the sampled range: only a lower neighbour exists.
+            logger.warning(
+                "Inflection point %.6f is above the sampled dphi range; "
+                "using one-sided (lower) spacing as its error.", x0
+            )
+            err = float(x0 - below[-1])
+        else:
+            # Degenerate: a single unique dphi value, no spacing to measure.
+            logger.warning("Only one unique dphi value; cannot estimate an error.")
+            err = float("nan")
+        self.critical_supersat_err = float(err)
+
+        logger.info(
+            "Critical supersaturation (inflection point): %.6f +- %.6f "
+            "(resolution); +- %.6f (fit covariance)",
+            self.critical_supersat, self.critical_supersat_err,
+            self.critical_supersat_cov_err,
+        )
+        return [self.critical_supersat, self.critical_supersat_err]

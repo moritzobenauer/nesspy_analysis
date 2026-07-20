@@ -18,20 +18,33 @@ logger = logging.getLogger(__name__)
 ANALYSIS_CSV = "order_disorder_analysis.csv"
 
 
-def _read_critical_supersat(run_dir: Path) -> float:
-    """Read the critical supersaturation back from ``critical_supersat.txt``.
+def _read_critical_supersat(run_dir: Path) -> tuple[float, float]:
+    """Read the critical supersaturation (+ error) from ``critical_supersat.txt``.
 
-    The file (written by ``analyze_directory``) has a single line of the form
-    ``critical_supersat (...): <value>``. Returns ``float('nan')`` if the file
-    is missing or unparsable.
+    The file (written by ``analyze_directory``) has two lines of the form
+    ``critical_supersat (...): <value>`` and
+    ``critical_supersat_error (...): <error>``. Returns ``(value, error)``, with
+    ``float('nan')`` for either field that is missing or unparsable (older files
+    written before the error was added have no second line, so their error comes
+    back as NaN).
     """
     txt = run_dir / "critical_supersat.txt"
+
+    def _parse(line: str) -> float:
+        try:
+            return float(line.rsplit(":", 1)[1])
+        except (ValueError, IndexError):
+            return float("nan")
+
     try:
-        line = txt.read_text().strip()
-        return float(line.rsplit(":", 1)[1])
-    except (OSError, ValueError, IndexError):
+        lines = txt.read_text().strip().splitlines()
+    except OSError:
         logger.warning("Could not read critical supersaturation from %s", txt)
-        return float("nan")
+        return float("nan"), float("nan")
+
+    value = _parse(lines[0]) if len(lines) >= 1 else float("nan")
+    error = _parse(lines[1]) if len(lines) >= 2 else float("nan")
+    return value, error
 
 
 def summarize_skipped(run_dir: Path) -> dict:
@@ -44,6 +57,7 @@ def summarize_skipped(run_dir: Path) -> dict:
     """
     analysis_object = npa.DynamicalOrderDisorder(run_dir.name, run_dir)
     thermos = analysis_object.get_thermos_from_file()
+    critical_supersat, critical_supersat_err = _read_critical_supersat(run_dir)
     return {
         "directory": run_dir.name,
         "jhom": thermos.jhom,
@@ -52,7 +66,8 @@ def summarize_skipped(run_dir: Path) -> dict:
         "dmu": thermos.dmu,
         "k": thermos.k,
         "method": thermos.method,
-        "critical_supersat": _read_critical_supersat(run_dir),
+        "critical_supersat": critical_supersat,
+        "critical_supersat_err": critical_supersat_err,
     }
 
 
@@ -203,9 +218,16 @@ if __name__ == "__main__":
     print("\n=== Sweep summary ===")
     print(summary)
 
-    # bar chart of the critical supersaturation for every analyzed run
+    # bar chart of the critical supersaturation for every analyzed run, with the
+    # sampling-resolution error bars (mean dphi spacing bracketing each fit).
     fig, ax = plt.subplots(figsize=(max(6, len(summary) * 0.6), 5))
-    ax.bar(summary["directory"], summary["critical_supersat"], color="tab:blue")
+    ax.bar(
+        summary["directory"],
+        summary["critical_supersat"],
+        yerr=summary["critical_supersat_err"],
+        capsize=4,
+        color="tab:blue",
+    )
     ax.set_ylabel(r"Critical supersaturation $\Delta\phi_c$")
     ax.set_xlabel("Run directory")
     plt.setp(ax.get_xticklabels(), rotation=45, ha="right")

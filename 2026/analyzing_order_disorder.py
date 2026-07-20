@@ -15,7 +15,7 @@ try:
 except ImportError:
     logger.warning("plot_defaults not found; using matplotlib defaults.")
 
-data_path = Path("/Volumes/2025/RETHINKING_SUPERSAT/X_320_Y_80_1.0_D0.0_JHOM_-4.00_F0.0_K1.0")
+data_path = Path("/Volumes/2025/RETHINKING_SUPERSAT/X_320_Y_80_1.0_D0.0_JHOM_-4.5_F0.0_K1.0")
 
 
 def analyze_directory(data_path: Path, min_size: int = 8) -> dict:
@@ -52,16 +52,22 @@ def analyze_directory(data_path: Path, min_size: int = 8) -> dict:
 
     data['susceptibility'] = data['m2'] - data['m']**2
 
-    # fit m vs log(S) to a sigmoid and find the inflection point
-    critical_supersat = analysis_object.get_critical_supersat()
-    logger.info("Critical supersaturation (inflection point): %.6f", critical_supersat)
+    # fit m vs log(S) to a sigmoid and find the inflection point (+ its
+    # sampling-resolution error, i.e. the mean dphi spacing bracketing it).
+    critical_supersat, critical_supersat_err = analysis_object.get_critical_supersat()
+    logger.info(
+        "Critical supersaturation (inflection point): %.6f +- %.6f",
+        critical_supersat, critical_supersat_err,
+    )
 
     # save all the calculated results to the base path
     data.to_csv(data_path / "order_disorder_analysis.csv", index=False)
 
-    # write the critical supersaturation to a text file in the parent directory
+    # write the critical supersaturation (+ error) to a text file in the parent
+    # directory. Two clearly-labelled lines so parent_sweeper can read both back.
     with open(data_path / "critical_supersat.txt", "w") as fh:
         fh.write(f"critical_supersat (inflection point of m vs log(S)): {critical_supersat}\n")
+        fh.write(f"critical_supersat_error (mean dphi spacing bracketing the inflection point): {critical_supersat_err}\n")
 
     # save an order parameter versus logarithmic supersaturation plot
     fig, ax = plt.subplots(1, 2, figsize=(12, 5))
@@ -79,12 +85,18 @@ def analyze_directory(data_path: Path, min_size: int = 8) -> dict:
     ax[0].plot(dphi_fit, npa.sigmoid(dphi_fit, *analysis_object.sigmoid_params),
                color='k', lw=2, label='Sigmoidal fit')
 
-    # indicate the critical supersaturation (inflection point)
+    # indicate the critical supersaturation (inflection point) with its error
+    # band (mean dphi spacing to the bracketing data points).
     ax[0].axvline(
         critical_supersat,
         color='tab:red',
         linestyle='--',
-        label=rf'$\Delta\phi_c = {critical_supersat:.3f}$',
+        label=rf'$\Delta\phi_c = {critical_supersat:.3f} \pm {critical_supersat_err:.3f}$',
+    )
+    ax[0].axvspan(
+        critical_supersat - critical_supersat_err,
+        critical_supersat + critical_supersat_err,
+        color='tab:red', alpha=0.15,
     )
 
     ax[0].set_xlabel(r'Logarithmic supersaturation $\Delta\phi = \log S$')
@@ -103,7 +115,12 @@ def analyze_directory(data_path: Path, min_size: int = 8) -> dict:
         critical_supersat,
         color='tab:red',
         linestyle='--',
-        label=rf'$\Delta\phi_c = {critical_supersat:.3f}$',
+        label=rf'$\Delta\phi_c = {critical_supersat:.3f} \pm {critical_supersat_err:.3f}$',
+    )
+    ax[1].axvspan(
+        critical_supersat - critical_supersat_err,
+        critical_supersat + critical_supersat_err,
+        color='tab:red', alpha=0.15,
     )
 
     ax[1].set_xlabel(r'Logarithmic supersaturation $\Delta\phi = \log S$')
@@ -131,6 +148,7 @@ def analyze_directory(data_path: Path, min_size: int = 8) -> dict:
         "k": thermos.k,
         "method": thermos.method,
         "critical_supersat": critical_supersat,
+        "critical_supersat_err": critical_supersat_err,
     }
 
 
