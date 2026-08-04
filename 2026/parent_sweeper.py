@@ -43,6 +43,8 @@ def summarize_skipped(run_dir: Path, compute_speed: bool = False) -> dict:
         "dmu": thermos.dmu,
         "k": thermos.k,
         "method": thermos.method,
+        # short driving-scheme label (S1..S6), consistent with analyze_directory.
+        "scheme": npa.scheme_short_label(thermos.method),
         "critical_supersat": critical_supersat,
         "critical_supersat_err": critical_supersat_err,
     }

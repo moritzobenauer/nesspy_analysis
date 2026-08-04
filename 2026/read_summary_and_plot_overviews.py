@@ -22,6 +22,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import nesspy_analysis as npa
 
 # Reuse the sweeper's definition of "growth speed at the critical
 # supersaturation" (the nearest sampled raw point, not an interpolation) so the
@@ -148,14 +149,24 @@ def order_parameter_versus_supersat(
 
 
 def _plot_single_dataset(
-    name: str, data: pd.DataFrame, out_dir: Path, critical_supersat: float
+    name: str,
+    data: pd.DataFrame,
+    out_dir: Path,
+    critical_supersat: float,
+    scheme: str = "",
+    critical_supersat_err: float = float("nan"),
 ) -> None:
     """Save the two per-dataset figures (growth speed + order parameter).
 
     ``critical_supersat`` (the order-disorder transition point, from
     ``sweep_summary.csv``) marks the growth speed there with a star on the growth
-    speed figure; pass ``nan`` to omit the marker.
+    speed figure; pass ``nan`` to omit the marker. ``critical_supersat_err`` is
+    its error (from the same summary), drawn as a shaded band around the
+    transition line on the order-parameter figure; pass ``nan`` to omit the band.
+    ``scheme`` (e.g. ``'S1'``) is appended to each figure title so the driving
+    scheme is stated on the plot; pass ``""`` to omit it.
     """
+    title = f"{name} ({scheme})" if scheme else name
     # growth speed vs log supersaturation (log y axis, as growth speeds span
     # roughly an order of magnitude and are strictly positive).
     x, y, yerr = growth_speed_versus_supersat(data)
@@ -174,7 +185,7 @@ def _plot_single_dataset(
     ax.set_yscale("log")
     ax.set_xlabel(r"Logarithmic supersaturation $\Delta\phi = \log S$")
     ax.set_ylabel(r"Growth speed $\langle v \rangle$")
-    ax.set_title(name)
+    ax.set_title(title)
     fig.tight_layout()
     fig.savefig(out_dir / "growth_speed_vs_supersat.png", dpi=300)
     plt.close(fig)
@@ -182,33 +193,72 @@ def _plot_single_dataset(
     # order parameter vs log supersaturation (linear y axis).
     x, y, yerr = order_parameter_versus_supersat(data)
     fig, ax = plt.subplots()
-    ax.errorbar(x, y, yerr=yerr, fmt="o", capsize=5)
+    ax.errorbar(x, y, yerr=yerr, fmt="o", capsize=5, label=r"Exact $w(q)$ method")
+
+    # BUGFIX 2026-07-21 sigmoid fit + transition line were dropped from this
+    # per-dataset order-parameter plot (it only has the cached CSV, not the live
+    # analysis object). Refit the logistic here from the cached (dphi, m, dm) so
+    # this figure matches the one analyze_directory produces: overlay the
+    # sigmoidal fit and mark the critical supersaturation with a vertical line.
+    try:
+        sigmoid_params = npa.fit_sigmoid(x, y, yerr=yerr)
+        dphi_fit = np.linspace(x.min(), x.max(), 400)
+        ax.plot(
+            dphi_fit, npa.sigmoid(dphi_fit, *sigmoid_params),
+            color="k", lw=2, label="Sigmoidal fit",
+        )
+    except Exception as e:
+        # a fit failure must not lose the whole figure; skip the overlay only.
+        logger.warning("Could not refit sigmoid for %s: %s", name, e)
+
+    if not np.isnan(critical_supersat):
+        # transition line, labelled with the value (+ error when available).
+        if np.isnan(critical_supersat_err):
+            crit_label = rf"$\Delta\phi_c = {critical_supersat:.3f}$"
+        else:
+            crit_label = (
+                rf"$\Delta\phi_c = {critical_supersat:.3f} "
+                rf"\pm {critical_supersat_err:.3f}$"
+            )
+        ax.axvline(
+            critical_supersat, color="tab:red", linestyle="--", label=crit_label,
+        )
+        if not np.isnan(critical_supersat_err):
+            ax.axvspan(
+                critical_supersat - critical_supersat_err,
+                critical_supersat + critical_supersat_err,
+                color="tab:red", alpha=0.15,
+            )
+
     ax.set_xlabel(r"Logarithmic supersaturation $\Delta\phi = \log S$")
     ax.set_ylabel(r"Order parameter $|m|$")
-    ax.set_title(name)
+    ax.legend()
+    ax.set_title(title)
     fig.tight_layout()
     fig.savefig(out_dir / "order_parameter_vs_supersat.png", dpi=300)
     plt.close(fig)
 
 
 def _plot_combined(
-    datasets: dict[str, tuple[pd.DataFrame, float]], parent_dir: Path
+    datasets: dict[str, tuple[pd.DataFrame, float, str]], parent_dir: Path
 ) -> None:
     """Save the two combined overlay figures across all selected datasets.
 
-    ``datasets`` maps a dataset name to ``(data, critical_supersat)``. One color
-    per dataset, shared axes; written into ``parent_dir`` as
+    ``datasets`` maps a dataset name to ``(data, critical_supersat, scheme)``.
+    One color per dataset, shared axes; written into ``parent_dir`` as
     ``overview_growth_speed_vs_supersat.png`` and
-    ``overview_order_parameter_vs_supersat.png``. On the growth speed overlay the
-    growth speed at each dataset's critical supersaturation is starred in that
-    dataset's own line color.
+    ``overview_order_parameter_vs_supersat.png``. The scheme label (e.g. ``S1``)
+    is folded into each legend entry. On the growth speed overlay the growth
+    speed at each dataset's critical supersaturation is starred in that dataset's
+    own line color.
     """
     # combined growth speed overlay (log y axis).
     fig, ax = plt.subplots()
-    for name, (data, critical_supersat) in datasets.items():
+    for name, (data, critical_supersat, scheme) in datasets.items():
+        label = f"{name} ({scheme})" if scheme else name
         x, y, yerr = growth_speed_versus_supersat(data)
         line = ax.errorbar(
-            x, y, yerr=yerr, fmt="o-", capsize=4, markersize=5, label=name
+            x, y, yerr=yerr, fmt="o-", capsize=4, markersize=5, label=label
         )
         # star the transition-point growth speed in this dataset's line color.
         gs_c, _ = growth_speed_at_critical(data, critical_supersat)
@@ -229,9 +279,10 @@ def _plot_combined(
 
     # combined order parameter overlay (linear y axis).
     fig, ax = plt.subplots()
-    for name, (data, _critical_supersat) in datasets.items():
+    for name, (data, _critical_supersat, scheme) in datasets.items():
+        label = f"{name} ({scheme})" if scheme else name
         x, y, yerr = order_parameter_versus_supersat(data)
-        ax.errorbar(x, y, yerr=yerr, fmt="o-", capsize=4, markersize=5, label=name)
+        ax.errorbar(x, y, yerr=yerr, fmt="o-", capsize=4, markersize=5, label=label)
     ax.set_xlabel(r"Logarithmic supersaturation $\Delta\phi = \log S$")
     ax.set_ylabel(r"Order parameter $|m|$")
     ax.legend(fontsize="small")
@@ -305,15 +356,36 @@ if __name__ == "__main__":
         else {}
     )
 
+    # error on the critical supersaturation per dataset (the shaded band around
+    # the transition line). Missing/NaN entries simply omit the band.
+    critical_err_by_dir = (
+        summary.set_index("directory")["critical_supersat_err"].to_dict()
+        if "critical_supersat_err" in summary.columns
+        else {}
+    )
+
+    # driving-scheme label per dataset (e.g. 'S1'), keyed by directory name.
+    # Older summaries without a 'scheme' column simply get no label.
+    scheme_by_dir = (
+        summary.set_index("directory")["scheme"].to_dict()
+        if "scheme" in summary.columns
+        else {}
+    )
+
     # load each selected dataset once, make its per-dataset plots, and collect it
-    # (with its critical supersaturation) for the combined overlay.
-    loaded: dict[str, tuple[pd.DataFrame, float]] = {}
+    # (with its critical supersaturation and scheme) for the combined overlay.
+    loaded: dict[str, tuple[pd.DataFrame, float, str]] = {}
     for name in selected:
         dataset_dir = parent_dir / name
         data = pd.read_csv(dataset_dir / ANALYSIS_CSV)
         critical_supersat = float(critical_by_dir.get(name, float("nan")))
-        _plot_single_dataset(name, data, dataset_dir, critical_supersat)
-        loaded[name] = (data, critical_supersat)
+        critical_supersat_err = float(critical_err_by_dir.get(name, float("nan")))
+        scheme = str(scheme_by_dir.get(name, "") or "")
+        _plot_single_dataset(
+            name, data, dataset_dir, critical_supersat, scheme,
+            critical_supersat_err=critical_supersat_err,
+        )
+        loaded[name] = (data, critical_supersat, scheme)
         print(f"Saved per-dataset plots for {name}")
 
     # combined overview across all selected datasets, written to the parent dir.

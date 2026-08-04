@@ -55,6 +55,42 @@ supersaturation bar chart. It accepts the following arguments:
 
 ## Changelog
 
+### 0.5.1
+
+- **BUGFIX**: The per-dataset order-parameter figure written by
+  `2026/read_summary_and_plot_overviews.py` (`order_parameter_vs_supersat.png`)
+  lost its sigmoidal fit and its critical-supersaturation line, so running the
+  overview script overwrote the complete figure produced by `analyze_directory`
+  with a bare scatter. `_plot_single_dataset()` now refits the logistic from the
+  cached `(dphi, m, dm)` and overlays the sigmoidal fit plus a dashed
+  transition line (with a shaded error band from `critical_supersat_err`),
+  matching `analyze_directory`'s figure.
+
+### 0.5.0
+
+- **Heterogeneous driving schemes**: `DynamicalOrderDisorder.get_thermos_from_file()`
+  no longer raises on an active `hrc`. The `(hrc, hrc_method)` pair read from the
+  `out.csv` data rows is now mapped onto a driving scheme via the new
+  `scheme_from_hrc()` helper: `hrc=False` → `HOMO` (S1, homogeneous driving);
+  `hrc=True` with `hrc_method` `91.0` → `SCHEME91` (S2), `93.0` → `SCHEME93` (S3),
+  `3.0` → `SCHEME3` (S4), `6.0` → `SCHEME6` (S5), `7.0` → `SCHEME7` (S6). Unknown
+  active `hrc_method` values raise `NotImplementedError`. When `hrc` is inactive
+  the `hrc_method` float is treated as free (no longer required to be consistent
+  across files). See `dealing_with_different_schemes.md`.
+- **Two missing schemes in the numerical steady state**:
+  `get_steady_state_probabilities_numerical()` gained `SCHEME3` (drive rescaled by
+  `exp(-|n_red + n_blue|)`) and the colour-conditioned `SCHEME7` (a blue
+  particle's drive damped by its red neighbours and vice versa, so the red- and
+  blue-active states use independent `M_red`/`M_blue`). It now raises on an
+  unknown scheme string.
+- **Scheme labelling helpers**: new `scheme_short_label()` (`S1`..`S6`),
+  `scheme_math_label()` (`$\mathcal{S}n$`, for plots) and `scheme_description()`.
+- **Analysis outputs state the scheme**: `sweep_summary.csv` and the skipped-run
+  summaries gain a `scheme` column; `order_disorder_analysis.csv` gains `method`
+  and `scheme` columns; `critical_supersat.txt` gains a `scheme:` line; and the
+  per-dataset / overview figures (`analyzing_order_disorder.py`,
+  `read_summary_and_plot_overviews.py`) carry the scheme in their titles/legends.
+
 ### 0.4.2
 
 - **Graceful non-interactive fallback**: `2026/read_summary_and_plot_overviews.py`

@@ -264,7 +264,7 @@ wheels = [
 
 [[package]]
 name = "nesspy-analysis"
-version = "0.4.2"
+version = "0.5.1"
 source = { editable = "." }
 dependencies = [
     { name = "pandas" },

@@ -173,6 +173,9 @@ def analyze_directory(
         "dmu": thermos.dmu,
         "k": thermos.k,
         "method": thermos.method,
+        # short driving-scheme label (S1..S6) so every summary row states the
+        # scheme alongside the internal method string.
+        "scheme": npa.scheme_short_label(thermos.method),
         "critical_supersat": float("nan"),
         "critical_supersat_err": float("nan"),
     }
@@ -226,14 +229,25 @@ def analyze_directory(
         summary["growth_speed_at_critical"] = gs
         summary["dgrowth_speed_at_critical"] = dgs
 
-    # save all the calculated results to the base path
+    # driving-scheme labels, recorded on every analysis output so a dataset's
+    # scheme is unambiguous downstream.
+    scheme_short = npa.scheme_short_label(thermos.method)
+    scheme_math = npa.scheme_math_label(thermos.method)
+
+    # save all the calculated results to the base path. Stamp the scheme onto
+    # every row so the per-mu CSV also carries it.
+    data = data.copy()
+    data["method"] = thermos.method
+    data["scheme"] = scheme_short
     data.to_csv(data_path / ANALYSIS_CSV, index=False)
 
     # write the critical supersaturation (+ error) to a text file in the parent
-    # directory. Two clearly-labelled lines so parent_sweeper can read both back.
+    # directory. Two clearly-labelled lines so parent_sweeper can read both back,
+    # plus a scheme line so the file states which driving scheme produced it.
     with open(data_path / CRITICAL_SUPERSAT_TXT, "w") as fh:
         fh.write(f"critical_supersat (inflection point of m vs log(S)): {critical_supersat}\n")
         fh.write(f"critical_supersat_error (mean dphi spacing bracketing the inflection point): {critical_supersat_err}\n")
+        fh.write(f"scheme: {scheme_short} (method={thermos.method})\n")
 
     # save an order parameter versus logarithmic supersaturation plot
     fig, ax = plt.subplots(1, 2, figsize=(12, 5))
@@ -293,6 +307,8 @@ def analyze_directory(
     ax[1].set_ylabel(r'Susceptibility $\chi$')
     ax[1].legend()
 
+    # state the driving scheme on the figure so it is self-describing.
+    fig.suptitle(rf'{data_path.name} -- driving scheme {scheme_math}')
     fig.tight_layout()
     fig.savefig(data_path / "order_parameter_vs_supersat.png", dpi=300)
     plt.close(fig)
@@ -301,6 +317,7 @@ def analyze_directory(
     fig, _ = npa.plot_cluster_observables(
         data, critical_supersat=critical_supersat, min_size=min_size
     )
+    fig.suptitle(rf'{data_path.name} -- driving scheme {scheme_math}')
     fig.savefig(data_path / "cluster_observables_vs_supersat.png", dpi=300)
     plt.close(fig)
     logger.info("Saved results and plots to %s", data_path)

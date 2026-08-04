@@ -56,6 +56,79 @@ class Lattice2D:
 
 
 # ---------------------------------------------------------------------------
+# Driving-scheme registry.
+#
+# A "driving scheme" fixes how the non-equilibrium drive is applied as a
+# function of the local environment: depending on the scheme the base rate k or
+# the chemical drive dmu is rescaled by the neighbour counts. In the raw out.csv
+# files a scheme is encoded by the pair (hrc, hrc_method); here we map that pair
+# onto a single canonical method string (used throughout flex.py and the
+# numerical steady state below) and onto the short S-labels used in plots and
+# summaries. See dealing_with_different_schemes.md for the physics of each one.
+# ---------------------------------------------------------------------------
+
+# hrc_method float (only consulted when hrc is active) -> canonical method string.
+_HRC_METHOD_TO_SCHEME = {
+    91.0: "SCHEME91",
+    93.0: "SCHEME93",
+    3.0: "SCHEME3",
+    6.0: "SCHEME6",
+    7.0: "SCHEME7",
+}
+
+# canonical method -> (short label, LaTeX label for plots, human description).
+# The LaTeX labels follow the S-numbering agreed in
+# dealing_with_different_schemes.md (S1 = homogeneous driving, S2..S6 = the HRC
+# schemes). NODRIVE is the undriven/equilibrium reference (no S-number in the
+# note); it is labelled S0 here so it never collides with a real scheme.
+SCHEME_LABELS = {
+    "NODRIVE":  ("S0", r"$\mathcal{S}0$", "undriven / equilibrium reference"),
+    "HOMO":     ("S1", r"$\mathcal{S}1$", "homogeneous driving"),
+    "SCHEME91": ("S2", r"$\mathcal{S}2$", "HRC 91.0: rate k rescaled by exp(-(n_red + n_blue))"),
+    "SCHEME93": ("S3", r"$\mathcal{S}3$", "HRC 93.0: rate k rescaled by exp(-|n_red - n_blue|)"),
+    "SCHEME3":  ("S4", r"$\mathcal{S}4$", "HRC 3.0: drive dmu rescaled by exp(-|n_red + n_blue|)"),
+    "SCHEME6":  ("S5", r"$\mathcal{S}5$", "HRC 6.0: drive dmu rescaled by exp(-|n_red - n_blue|)"),
+    "SCHEME7":  ("S6", r"$\mathcal{S}6$", "HRC 7.0: colour-conditioned drive dmu"),
+}
+
+
+def scheme_from_hrc(hrc: bool, hrc_method: float) -> str:
+    """Map the ``(hrc, hrc_method)`` flags from an out.csv onto a method string.
+
+    ``hrc`` inactive -> ``'HOMO'`` (homogeneous driving, S1) regardless of the
+    ``hrc_method`` value (which the note says "can be any float value" in that
+    case). When ``hrc`` is active the ``hrc_method`` float selects the
+    heterogeneous scheme; an unrecognised value raises ``NotImplementedError``
+    so a new scheme has to be registered deliberately.
+    """
+    if not hrc:
+        return "HOMO"
+    key = round(float(hrc_method), 1)
+    try:
+        return _HRC_METHOD_TO_SCHEME[key]
+    except KeyError:
+        raise NotImplementedError(
+            f"Active hrc with unknown hrc_method={hrc_method}; no driving-scheme "
+            f"mapping exists. Known methods: {sorted(_HRC_METHOD_TO_SCHEME)}."
+        )
+
+
+def scheme_short_label(method: str) -> str:
+    """Short scheme label (e.g. ``'S1'``) for summaries / filenames."""
+    return SCHEME_LABELS.get(method, (method, method, method))[0]
+
+
+def scheme_math_label(method: str) -> str:
+    r"""LaTeX scheme label (e.g. ``'$\mathcal{S}1$'``) for plot legends / titles."""
+    return SCHEME_LABELS.get(method, (method, method, method))[1]
+
+
+def scheme_description(method: str) -> str:
+    """One-line human-readable description of a driving scheme."""
+    return SCHEME_LABELS.get(method, (method, method, method))[2]
+
+
+# ---------------------------------------------------------------------------
 # Nearest-neighbour correlation weights w(q) and the corrected supersaturation.
 # These module-level helpers back DynamicalOrderDisorder.get_wq() and
 # .get_logarithmic_supersat_corrected(). They are kept at module scope (rather
@@ -70,7 +143,8 @@ def get_steady_state_probabilities_numerical(
 
     Returns ``(p_active, p_non_bonding)`` for the given local environment
     ``(n_red, n_blue)``. The driving scheme rescales the rate constant ``k`` or
-    the drive ``M`` as a function of the environment.
+    the drive ``M`` as a function of the environment; see
+    dealing_with_different_schemes.md for the definition of each ``scheme``.
     """
     n_red, n_blue = environment
 
@@ -78,23 +152,49 @@ def get_steady_state_probabilities_numerical(
     U_blue = np.exp(n_red * epsilon_hetero + n_blue * epsilon_homo)
     z = np.exp(mu)
 
-    if scheme == "HOMO":
+    # The drive enters the generator separately for the red-active and
+    # blue-active states, so we track M_red / M_blue independently. For every
+    # scheme except the colour-conditioned S6 (SCHEME7) the two are equal.
+    M_red = M
+    M_blue = M
+
+    if scheme in ("HOMO", "NODRIVE"):
+        # S1 / homogeneous driving: base rate is unity, drive used as read.
+        # NODRIVE is the undriven reference and behaves the same here (M = 1).
         k = 1.0
     elif scheme == "SCHEME91":
+        # S2 / HRC 91.0: rate rescaled by the total number of neighbours.
         k = k * np.exp(-(n_red + n_blue))
     elif scheme == "SCHEME93":
+        # S3 / HRC 93.0: rate rescaled by the neighbour difference.
         k = k * np.exp(-np.abs(n_red - n_blue))
-    elif scheme == "SCHEME6":
+    elif scheme == "SCHEME3":
+        # S4 / HRC 3.0: drive dmu rescaled by |n_red + n_blue|; k unchanged.
         dmu0 = np.log(M)
-        M = np.exp(dmu0 * np.exp(-np.abs(n_red - n_blue)))
+        M_red = M_blue = np.exp(dmu0 * np.exp(-np.abs(n_red + n_blue)))
+    elif scheme == "SCHEME6":
+        # S5 / HRC 6.0: drive dmu rescaled by |n_red - n_blue|; k unchanged.
+        dmu0 = np.log(M)
+        M_red = M_blue = np.exp(dmu0 * np.exp(-np.abs(n_red - n_blue)))
+    elif scheme == "SCHEME7":
+        # S6 / HRC 7.0: colour-conditioned drive. A blue particle's drive is
+        # damped by its red neighbours and a red particle's by its blue
+        # neighbours, so the red- and blue-active states see different drives.
+        # k is left unchanged.
+        dmu0 = np.log(M)
+        M_red = np.exp(dmu0 * np.exp(-np.abs(n_blue)))
+        M_blue = np.exp(dmu0 * np.exp(-np.abs(n_red)))
+    else:
+        raise ValueError(f"Unknown driving scheme: {scheme}")
 
-    # Set up the generator matrix
+    # Set up the generator matrix. The red-active row uses M_red and the
+    # blue-active row uses M_blue (identical except for SCHEME7).
     L = np.array(
         [
             [-2 * (z + z * F), z, z * F, z, z * F],
-            [U_red, -U_red - U_red * k * F * M, U_red * k * F * M, 0, 0],
+            [U_red, -U_red - U_red * k * F * M_red, U_red * k * F * M_red, 0, 0],
             [1.0, k, -(k + 1), 0, 0],
-            [U_blue, 0.0, 0.0, -U_blue * (1 + F * M * k), U_blue * F * M * k],
+            [U_blue, 0.0, 0.0, -U_blue * (1 + F * M_blue * k), U_blue * F * M_blue * k],
             [1.0, 0.0, 0.0, k, -(1 + k)],
         ],
         dtype=np.float64,
@@ -278,9 +378,10 @@ class DynamicalOrderDisorder:
         ``hrc`` and ``hrc_method`` are read from the data rows. Any inconsistency
         across files raises ``ValueError``.
 
-        Only the homogeneous case (``hrc`` inactive → ``'HOMO'``) is supported;
-        an active ``hrc`` raises ``NotImplementedError`` until its scheme mapping
-        is added.
+        The ``(hrc, hrc_method)`` pair is mapped onto the driving scheme via
+        :func:`scheme_from_hrc`: ``hrc`` inactive → ``'HOMO'`` (S1), and each
+        active ``hrc_method`` → its heterogeneous scheme (S2..S6). An
+        unrecognised active ``hrc_method`` raises ``NotImplementedError``.
         """
 
         def _as_bool(v):
@@ -307,7 +408,6 @@ class DynamicalOrderDisorder:
             ("dmu", dmu_vals),
             ("k", k_vals),
             ("hrc", hrc_vals),
-            ("hrc_method", hrc_method_vals),
             ("jhom", jhom_vals),
             ("jhet", jhet_vals),
         ]:
@@ -321,25 +421,31 @@ class DynamicalOrderDisorder:
         dmu = float(next(iter(dmu_vals)))
         k = float(next(iter(k_vals)))
         hrc = next(iter(hrc_vals))
-        hrc_method = float(next(iter(hrc_method_vals)))
         jhom = float(next(iter(jhom_vals)))
         jhet = float(next(iter(jhet_vals)))
 
-        if hrc:
-            raise NotImplementedError(
-                f"Active hrc (hrc_method={hrc_method}) is not mapped to a driving "
-                "scheme yet; only the homogeneous case (hrc inactive -> 'HOMO') "
-                "is supported."
+        # hrc_method only selects a scheme when hrc is active. For homogeneous
+        # driving (hrc inactive) the note says it "can be any float value", so
+        # we don't require it to be consistent across files in that case.
+        if hrc and len(hrc_method_vals) != 1:
+            raise ValueError(
+                f"Inconsistent 'hrc_method' across the {len(self.files)} out.csv "
+                f"files: {sorted(hrc_method_vals)}"
             )
-        method = "HOMO"
+        hrc_method = (
+            float(next(iter(hrc_method_vals))) if hrc_method_vals else float("nan")
+        )
+
+        method = scheme_from_hrc(hrc, hrc_method)
 
         thermos = Thermos(
             jhom=jhom, jhet=jhet, fres=fres, dmu=dmu, k=k, method=method
         )
         logger.info(
             "Detected Thermos from files: jhom=%s, jhet=%s, fres=%s, dmu=%s, "
-            "k=%s, method=%s",
+            "k=%s, method=%s (%s, hrc=%s, hrc_method=%s)",
             jhom, jhet, fres, dmu, k, method,
+            scheme_short_label(method), hrc, hrc_method,
         )
         return thermos
 
