@@ -55,6 +55,28 @@ supersaturation bar chart. It accepts the following arguments:
 
 ## Changelog
 
+### 0.8.0
+
+- New `2026/compare_order_disorder_runs.py`: overlays two (or more) already-analyzed run
+  directories in one four-panel figure — (a) order parameter `m` vs `log S` with the
+  logistic fit and each run's critical supersaturation, (b) susceptibility, (c) interface
+  growth speed (log ordinate) with the speed at Δφ_c marked, (d) the cluster observables
+  `q` (left axis, filled) and `r` (right axis, open).
+- It reads the caches that `analyzing_order_disorder.analyze_directory()` writes
+  (`order_disorder_analysis.csv`, `critical_supersat.txt`) and **never re-runs the w(q)
+  scan**, so both runs are guaranteed to have been processed by the identical pipeline; a
+  directory without those caches raises `FileNotFoundError` rather than being silently
+  recomputed with different settings. Each run's driving scheme is re-resolved from the
+  raw `out.csv` headers via `get_thermos_from_file()`, so a legacy run is remapped onto
+  its `S*` name in the legend too. `summarize()` returns the parameters and critical
+  values as a one-row-per-run DataFrame.
+- Analyzed `RETHINKING_SUPERSAT/X_320_Y_80_3.0_D0.0_JHOM_-3.50_F0.0_K1.0` (nesspy 1.9.1,
+  i.e. **modern** scheme numbering, `hrc_method = 3.0 → S3`, Δμ = 0, Δf = 0, k = 1) and
+  compared it against `RETHINKING_SUPERSAT/BASELINE_JHOM_35` (nesspy 1.4.1, legacy
+  numbering, `hrc = False → S1`, Δμ = 0, Δf = −20, k = 0). Δφ_c = 0.290 ± 0.018 vs
+  0.304 ± 0.018 — consistent within the sampling resolution, as expected for two undriven
+  systems. Outputs written next to the data as `comparison_S3_D0_vs_baseline.{png,csv}`.
+
 ### 0.7.0
 
 - Reads the **inverse (backward) chemical drive** that `nesspy` 1.10.0 introduced and
