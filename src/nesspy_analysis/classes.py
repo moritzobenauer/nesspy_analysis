@@ -133,14 +133,13 @@ def get_steady_state_probabilities_numerical(
         dmu0 = np.log(M)
         M_red = M_blue = np.exp(dmu0 * np.exp(-np.abs(n_red - n_blue)))
     elif scheme == "S6":
-        # S6: colour-conditioned drive. A blue particle's drive is damped by its
-        # red neighbours and a red particle's by its blue neighbours, so the red-
-        # and blue-active states see different drives. k is left unchanged.
+        # S6: colour-conditioned drive, exponential in the neighbour count, so
+        # the red- and blue-active states see different drives. k is unchanged.
         #
-        # This uses the *exponential* form exp(-n'), i.e. the S6 that nesspy has
-        # implemented since 2026-08-04 (hrc_method 6.0). Output written with the
+        # The exponential exp(-n') is the definition used throughout this package
+        # (see flex.py) and by nesspy since 2026-08-04. Output written with the
         # older linear form dmu_0 * (1 - n'/4) (legacy hrc_method 7.0, frozen
-        # 997.0) is therefore modelled by the exponential here.
+        # 997.0) is therefore modelled by the exponential here too.
         dmu0 = np.log(M)
         M_red = np.exp(dmu0 * np.exp(-np.abs(n_blue)))
         M_blue = np.exp(dmu0 * np.exp(-np.abs(n_red)))

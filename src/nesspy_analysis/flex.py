@@ -53,16 +53,17 @@ def calculate_dphi(
         # k-family schemes: k -> k * exp(-2) at two neighbours.
         k = k * np.exp(-2.0)
         return flex_phi(mu, jhom, jhet, dmu, fres, k, beta)
-    elif drivetype in ("S4", "S5"):
-        # dmu-family schemes: dmu -> dmu * exp(-2) at two neighbours.
+    elif drivetype in ("S4", "S5", "S6"):
+        # dmu-family schemes: dmu -> dmu * exp(-2) at two neighbours. All three
+        # are the same exponential suppression driven by a different neighbour
+        # count (N, |n_red - n_blue| and the likewise count n' respectively),
+        # and those counts coincide at this mean-field environment.
+        #
+        # BUGFIX 2026-08-05 S6 was evaluated with the linear form
+        # dmu_0 * (1 - n'/4), i.e. dmu / 2 at n' = 2. That form is wrong: S6 is
+        # exponential in n' (nesspy/src/hrc.py, hrc_method 6.0), which is what
+        # classes.get_steady_state_probabilities_numerical() also implements.
         dmu = dmu * np.exp(-2.0)
-        return flex_phi(mu, jhom, jhet, dmu, fres, k, beta)
-    elif drivetype == "S6":
-        # S6 evaluated with the *linear* form dmu_0 * (1 - n'/4) at n' = 2, i.e.
-        # dmu / 2. That is nesspy's pre-2026-08-04 S6 (legacy hrc_method 7.0);
-        # nesspy's current S6 is exponential in n', as used by
-        # classes.get_steady_state_probabilities_numerical().
-        dmu = dmu / 2.0
         return flex_phi(mu, jhom, jhet, dmu, fres, k, beta)
     else:
         raise ValueError(f"Unknown driving scheme: {drivetype}")

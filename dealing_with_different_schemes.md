@@ -79,13 +79,16 @@ dmu_blue = dmu_0 * np.exp(-np.abs(n_red)) # if the particle is blue
 dmu_red  = dmu_0 * np.exp(-np.abs(n_blue)) # if the particle is red
 ```
 
-> [!WARNING]
-> `nesspy` changed $\mathcal{S}6$ from the linear form $\Delta \mu_0 (1 - \mathcal{N}'/4)$ to the
-> exponential form above on **2026-08-04** (nesspy 1.9.1). Legacy `hrc_method = 7.0` and frozen
-> `997.0` therefore refer to the *linear* form. In this package,
-> `get_steady_state_probabilities_numerical()` implements the exponential form while `flex.py`
-> evaluates the linear one ($\Delta \mu / 2$ at $\mathcal{N}' = 2$) — decide which one a given
-> comparison needs.
+The exponential form is the definition of $\mathcal{S}6$ — it is what both `flex.py` (as
+$\Delta \mu \exp\{-2\}$ at the mean-field $\mathcal{N}' = 2$) and
+`get_steady_state_probabilities_numerical()` use.
+
+> [!NOTE]
+> `nesspy` itself used the linear form $\Delta \mu_0 (1 - \mathcal{N}'/4)$ for $\mathcal{S}6$ until
+> **2026-08-04** (nesspy 1.9.1), so $\mathcal{S}6$ runs written before that date — i.e. all legacy
+> `hrc_method = 7.0` data — were *generated* with the linear kernel while the theory here models the
+> exponential. The linear form was wrong, so this is the right comparison to make, but it is worth
+> remembering when an old $\mathcal{S}6$ data set and the theory curve disagree.
 
 Summary:
 

@@ -55,6 +55,24 @@ supersaturation bar chart. It accepts the following arguments:
 
 ## Changelog
 
+### 0.6.1
+
+- **BUGFIX** 2026-08-05: `flex.py` evaluated S6 with the linear form
+  `dmu_0 * (1 - n'/4)`, i.e. `dmu / 2` at the mean-field `n' = 2`. The linear form
+  is wrong — S6 is exponential in the likewise-neighbour count `n'`
+  (`nesspy/src/hrc.py`, `hrc_method` 6.0) — so S6 now rescales `dmu` by
+  `exp(-2)`, the same as S4/S5. All three dmu-family schemes are the same
+  exponential suppression driven by a different neighbour count (`N`,
+  `|n_red - n_blue|`, `n'`), and those counts coincide at two neighbours, so the
+  three FLEX branches now agree at mean-field level (pinned by a test).
+  `get_steady_state_probabilities_numerical()` was already exponential and is
+  unchanged; the two S6 implementations no longer disagree about the functional
+  form. **This changes S6 FLEX curves** — any saved S6 theory comparison needs
+  regenerating.
+- Note that S6 runs written before 2026-08-04 (all legacy `hrc_method = 7.0`
+  data) were *generated* by nesspy's linear kernel, so an old S6 data set and the
+  exponential theory curve are not the same model.
+
 ### 0.6.0
 
 - **Driving schemes are now named S0-S6 everywhere.** The canonical scheme
