@@ -72,12 +72,20 @@ dmu = dmu_0 * np.exp(-np.abs(n_red - n_blue))
 
 This changes the chemical drive $\Delta \mu$ as a function of the likewise-neighbour count
 $\mathcal{N}'$, i.e. conditioned on the color of the lattice site in question. It leaves $k$
-unchanged.
+unchanged. $\mathcal{N}'$ counts the neighbours of the site's **own** colour, so the drive decreases
+monotonically as a site becomes surrounded by its own species:
 
 ```
-dmu_blue = dmu_0 * np.exp(-np.abs(n_red)) # if the particle is blue
-dmu_red  = dmu_0 * np.exp(-np.abs(n_blue)) # if the particle is red
+dmu_red  = dmu_0 * np.exp(-n_red)  # if the particle is red
+dmu_blue = dmu_0 * np.exp(-n_blue) # if the particle is blue
 ```
+
+> [!IMPORTANT]
+> Earlier revisions of this note had the two lines the other way round (each colour damped by its
+> *unlike* neighbours), and `get_steady_state_probabilities_numerical()` was built from that. It was
+> wrong: `nesspy` conditions on the likewise count (`nhat = nred if current_state == 1 else nblue` in
+> `nesspy/src/hrc.py`, with `RED = 1` in `nesspy/src/kmc.py`), and `nesspy` is authoritative because
+> it generated the data. Fixed 2026-08-05.
 
 The exponential form is the definition of $\mathcal{S}6$ — it is what both `flex.py` (as
 $\Delta \mu \exp\{-2\}$ at the mean-field $\mathcal{N}' = 2$) and

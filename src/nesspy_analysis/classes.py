@@ -90,27 +90,23 @@ class Lattice2D:
 # ---------------------------------------------------------------------------
 
 
-def get_steady_state_probabilities_numerical(
-    epsilon_homo, epsilon_hetero, mu, F, M, k, environment, scheme="S1"
-):
-    """Stationary occupancy probabilities of the 5-state single-site model.
+def scheme_rescaled_drive_and_rate(scheme, M, k, environment):
+    """Apply a driving scheme's local perturbation to the drive and the rate.
 
-    Returns ``(p_active, p_non_bonding)`` for the given local environment
-    ``(n_red, n_blue)``. The driving scheme rescales the rate constant ``k`` or
-    the drive ``M`` as a function of the environment; see
-    dealing_with_different_schemes.md for the definition of each ``scheme``.
-    ``scheme`` is one of S0-S6 (legacy aliases accepted).
+    Returns ``(M_red, M_blue, k)`` for the local environment
+    ``(n_red, n_blue)``, where ``M = exp(dmu)`` is the drive as read from the
+    data and ``M_red``/``M_blue`` are the drives seen by the red-active and
+    blue-active states. They differ only for the colour-conditioned S6. See
+    dealing_with_different_schemes.md for the definition of each ``scheme``,
+    which is one of S0-S6 (legacy aliases accepted).
+
+    This mirrors ``spatial_dmu()``/``spatial_baserate()`` in ``nesspy/src/hrc.py``
+    -- nesspy is authoritative for what each scheme does, since it generated the
+    data being analyzed.
     """
     scheme = canonical_scheme(scheme)
     n_red, n_blue = environment
 
-    U_red = np.exp(n_red * epsilon_homo + n_blue * epsilon_hetero)
-    U_blue = np.exp(n_red * epsilon_hetero + n_blue * epsilon_homo)
-    z = np.exp(mu)
-
-    # The drive enters the generator separately for the red-active and
-    # blue-active states, so we track M_red / M_blue independently. For every
-    # scheme except the colour-conditioned S6 the two are equal.
     M_red = M
     M_blue = M
 
@@ -133,18 +129,47 @@ def get_steady_state_probabilities_numerical(
         dmu0 = np.log(M)
         M_red = M_blue = np.exp(dmu0 * np.exp(-np.abs(n_red - n_blue)))
     elif scheme == "S6":
-        # S6: colour-conditioned drive, exponential in the neighbour count, so
-        # the red- and blue-active states see different drives. k is unchanged.
+        # S6: colour-conditioned drive, exponential in the *likewise*-neighbour
+        # count n' (n_red for a red site, n_blue for a blue site), so the drive
+        # decreases monotonically as a site gains neighbours of its own colour.
+        # k is unchanged.
         #
-        # The exponential exp(-n') is the definition used throughout this package
-        # (see flex.py) and by nesspy since 2026-08-04. Output written with the
-        # older linear form dmu_0 * (1 - n'/4) (legacy hrc_method 7.0, frozen
-        # 997.0) is therefore modelled by the exponential here too.
+        # BUGFIX 2026-08-05 the two drives were conditioned on the *unlike*
+        # neighbours (M_red damped by n_blue and vice versa), following
+        # dealing_with_different_schemes.md. nesspy conditions on the likewise
+        # count -- `nhat = nred if current_state == 1 else nblue` in
+        # nesspy/src/hrc.py with RED = 1 in nesspy/src/kmc.py -- and nesspy is
+        # authoritative, so red is damped by n_red and blue by n_blue.
         dmu0 = np.log(M)
-        M_red = np.exp(dmu0 * np.exp(-np.abs(n_blue)))
-        M_blue = np.exp(dmu0 * np.exp(-np.abs(n_red)))
+        M_red = np.exp(dmu0 * np.exp(-n_red))
+        M_blue = np.exp(dmu0 * np.exp(-n_blue))
     else:
         raise ValueError(f"Unknown driving scheme: {scheme}")
+
+    return (M_red, M_blue, k)
+
+
+def get_steady_state_probabilities_numerical(
+    epsilon_homo, epsilon_hetero, mu, F, M, k, environment, scheme="S1"
+):
+    """Stationary occupancy probabilities of the 5-state single-site model.
+
+    Returns ``(p_active, p_non_bonding)`` for the given local environment
+    ``(n_red, n_blue)``. The driving scheme rescales the rate constant ``k`` or
+    the drive ``M`` as a function of the environment via
+    :func:`scheme_rescaled_drive_and_rate`. ``scheme`` is one of S0-S6 (legacy
+    aliases accepted).
+    """
+    n_red, n_blue = environment
+
+    U_red = np.exp(n_red * epsilon_homo + n_blue * epsilon_hetero)
+    U_blue = np.exp(n_red * epsilon_hetero + n_blue * epsilon_homo)
+    z = np.exp(mu)
+
+    # The drive enters the generator separately for the red-active and
+    # blue-active states, so we track M_red / M_blue independently. For every
+    # scheme except the colour-conditioned S6 the two are equal.
+    M_red, M_blue, k = scheme_rescaled_drive_and_rate(scheme, M, k, environment)
 
     # Set up the generator matrix. The red-active row uses M_red and the
     # blue-active row uses M_blue (identical except for S6).

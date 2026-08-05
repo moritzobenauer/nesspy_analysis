@@ -55,6 +55,31 @@ supersaturation bar chart. It accepts the following arguments:
 
 ## Changelog
 
+### 0.6.2
+
+- **BUGFIX** 2026-08-05: S6's colour-conditioned drive was damped by each site's
+  *unlike* neighbours (`M_red` by `n_blue` and vice versa), following an earlier
+  revision of `dealing_with_different_schemes.md`. `nesspy` conditions on the
+  **likewise** count — `nhat = nred if current_state == 1 else nblue` in
+  `nesspy/src/hrc.py`, with `RED = 1` in `nesspy/src/kmc.py` — and it is
+  authoritative, since it generated the data. A red site is now damped by
+  `exp(-n_red)` and a blue site by `exp(-n_blue)`, so **the drive decreases
+  monotonically as a site gains neighbours of its own colour**, which is the
+  defining property of S6. **This changes every S6 `w(q)`-corrected
+  supersaturation** (`get_logarithmic_supersat_corrected()` and everything
+  downstream: `dphi`, critical supersaturations, the sweep summaries), so cached
+  S6 results need recomputing. Unaffected: S0-S5, and `flex.py`, which evaluates
+  S6 at the mean-field `n' = 2` either way.
+- The scheme perturbation moved out of `get_steady_state_probabilities_numerical()`
+  into a new `scheme_rescaled_drive_and_rate(scheme, M, k, environment)` that
+  returns `(M_red, M_blue, k)`. Same numerics, but the effective drive of each
+  scheme is now directly inspectable and unit-testable instead of only being
+  observable through a 5x5 eigenproblem.
+- New tests pin the S6 monotonicity requirement (for a positive drive, and as a
+  magnitude for a negative one), that a red site's drive is independent of its
+  blue neighbours, that S4/S5 fall off in their own neighbour count, that S2/S3
+  perturb `k` and leave the drive alone, and that S0/S1 perturb neither.
+
 ### 0.6.1
 
 - **BUGFIX** 2026-08-05: `flex.py` evaluated S6 with the linear form

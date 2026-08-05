@@ -20,7 +20,7 @@ default behavior.
      (use the C++/Rust comment syntax `// BUGFIX <DATE> <ISSUE>` in those languages).
 
 3. **Bump the version on every change.** Whenever you change something, increment the
-   `version` field in `pyproject.toml` (currently `0.6.1`) — or the respective
+   `version` field in `pyproject.toml` (currently `0.6.2`) — or the respective
    equivalent for other languages (`Cargo.toml` for Rust, etc.). Use semantic
    versioning: bump the patch for bug fixes, the minor for new features.
 
