@@ -6,65 +6,13 @@ from multiprocessing import Pool
 import nesspy_analysis as npa
 
 
-def get_steady_state_probabilities_numerical(epsilon_homo, epsilon_hetero, mu, F, M, k, environment,
-                                             scheme='S1'):
-
-    # Driving schemes are named S0-S6 (see nesspy_analysis/schemes.py); legacy
-    # spellings such as 'HOMO' or 'SCHEME6' are normalised to those names.
-    scheme = npa.canonical_scheme(scheme)
-
-    n_red, n_blue = environment
-
-    U_red = np.exp(n_red*epsilon_homo + n_blue*epsilon_hetero)
-    U_blue = np.exp(n_red*epsilon_hetero + n_blue*epsilon_homo)
-    z = np.exp(mu)
-
-    if scheme=='S1':
-        k = 1.0
-    elif scheme=='S2':
-        k = k*np.exp(-(n_red+n_blue))
-    elif scheme=='S3':
-        k = k*np.exp(-np.abs(n_red-n_blue))
-
-    elif scheme=='S5':
-        dmu0 = np.log(M)
-        # 2026-07-15: Fixed global variable leak (changed dmu to dmu0)
-        M = np.exp(dmu0*np.exp(-np.abs(n_red-n_blue)))
-
-    # Set up the generator matrix
-
-    L = np.array([
-    [-2*(z + z*F), z, z*F, z, z*F],
-    [U_red, -U_red-U_red*k*F*M, U_red*k*F*M, 0, 0],
-    [1.0, k, -(k + 1), 0, 0],
-    [U_blue, 0.0, 0.0, -U_blue*(1+F*M*k), U_blue*F*M*k],
-    [1.0, 0.0, 0.0, k, -(1+k)]
-], dtype=np.float64)
-    Q = L.T
-    evals, evecs = np.linalg.eig(Q)
-    evals = np.round(evals, decimals=10)
-    evecs = np.round(evecs, decimals=10)
-    # Sort eigenvalues and eigenvectors by eigenvalue
-    idx = np.argsort(evals)[::-1]
-    evals = evals[idx]
-    evecs = evecs[:, idx]
-
-    # print("Eigenvalues:", evals)
-
-    # Make sure the first eigenvector is positive
-    if evecs[0, 0] < 0:
-        evecs[:, 0] = -evecs[:, 0]
-    # The stationary distribution is the eigenvector associated with eigenvalue 0
-    pi = evecs[:, 0] / np.sum(evecs[:, 0])
-    # print("Stationary distribution:", pi)
-
-
-    p_empty, p_red_active, p_red_inactive, p_blue_active, p_blue_inactive = pi[0], pi[1], pi[2], pi[3], pi[4]
-
-    p_active = p_red_active + p_blue_active
-    p_non_bonding = p_blue_inactive + p_red_inactive + p_empty
-
-    return p_active, p_non_bonding
+# 2026-08-05: This module used to carry its own copy of
+# get_steady_state_probabilities_numerical(). That copy had drifted: it never
+# grew an S4 or S6 branch (so an S6 run silently got *no* perturbation), and its
+# single M could not express S6's colour-conditioned drive at all, which needs
+# independent M_red / M_blue. Use the package function, which is the one covered
+# by the test suite.
+get_steady_state_probabilities_numerical = npa.get_steady_state_probabilities_numerical
 
 
 def get_nns(lattice: np.array, x: int, y: int):

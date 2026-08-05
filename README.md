@@ -79,6 +79,11 @@ supersaturation bar chart. It accepts the following arguments:
   magnitude for a negative one), that a red site's drive is independent of its
   blue neighbours, that S4/S5 fall off in their own neighbour count, that S2/S3
   perturb `k` and leave the drive alone, and that S0/S1 perturb neither.
+- `2026/wq.py` carried its own drifted copy of
+  `get_steady_state_probabilities_numerical()` that never grew an S4 or S6 branch
+  — so an S6 run there silently got **no** perturbation — and whose single `M`
+  could not express a colour-conditioned drive at all. It now uses the package
+  function, which is the one the test suite covers.
 
 ### 0.6.1
 
