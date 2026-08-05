@@ -117,3 +117,26 @@ Nomenclature in the `out.csv` file --> New nomenclature
 too: `990.0`/`9990.0` → $\mathcal{S}1$, `9991.0` → $\mathcal{S}2$, `9993.0` → $\mathcal{S}3$,
 `993.0` → $\mathcal{S}4$, `996.0` → $\mathcal{S}5$, `997.0` → $\mathcal{S}6$ (linear). Anything
 else raises `NotImplementedError` rather than guessing.
+
+# The inverse (backward) drive
+
+`nesspy 1.10.0` gave the backward reaction (inactive → active, `-1 → 1` and `-2 → 2`) its own
+drive, a factor $\exp(\Delta \mu_\text{inv})$ on that rate, with its own scheme; `nesspy 1.10.1`
+(2026-08-04) records both in `out.csv` as the `inverse_drive` / `inverse_scheme` columns after
+`k`. `nesspy_analysis` reads them into `Thermos.drive_reverse` /
+`Thermos.drive_scheme_reverse` (`inverse_scheme_from_hrc()`), with three rules:
+
+- **Δμ-family only.** nesspy evaluates the inverse drive through `hrc.spatial_dmu`, so only
+  $\mathcal{S}1$, $\mathcal{S}4$, $\mathcal{S}5$, $\mathcal{S}6$ are valid; a k-family number
+  ($\mathcal{S}2$/$\mathcal{S}3$) raises there and here.
+- **No legacy catalogue.** The inverse drive is newer than the 1.9.0 renaming, so an
+  `inverse_scheme` number is always in the modern numbering.
+- **No columns → no inverse drive.** Output from before 1.10.1 reads as
+  `drive_reverse = 0.0` and `drive_scheme_reverse =` $\mathcal{S}0$, which is what those runs
+  did. A zero inverse drive reads as $\mathcal{S}0$ even when a file names a scheme, since
+  `exp(0)` leaves the backward rates untouched either way.
+
+> [!NOTE]
+> These are currently read and stored only. Neither `flex.py` nor
+> `get_steady_state_probabilities_numerical()` uses the inverse drive yet, so a nonzero
+> `drive_reverse` does **not** show up in any theory curve.

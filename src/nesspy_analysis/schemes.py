@@ -49,6 +49,16 @@ so the file's nesspy version has to be consulted before the number can be
 interpreted; that is what the ``legacy`` flag of :func:`scheme_from_hrc` is for.
 ``nesspy_analysis.read_csv.is_legacy_output()`` determines it from the
 ``# nesspy Version ...`` header line of the file itself.
+
+The inverse (backward) drive
+----------------------------
+nesspy 1.10.0 gave the backward reaction (inactive -> active) its own drive, and
+1.10.1 started recording it in ``out.csv`` as the ``inverse_drive`` /
+``inverse_scheme`` columns. It has its own scheme, resolved by
+:func:`inverse_scheme_from_hrc` -- Δμ-family only, always in the manuscript
+numbering. Output without those columns states no inverse drive, i.e.
+:data:`NO_INVERSE_DRIVE` (``0.0``) with :data:`NO_INVERSE_DRIVE_SCHEME`
+(``"S0"``).
 """
 
 from __future__ import annotations
@@ -61,14 +71,20 @@ from datetime import date
 __all__ = [
     "NESSPY_SCHEME_RENAME_VERSION",
     "NESSPY_SCHEME_RENAME_DATE",
+    "NESSPY_INVERSE_DRIVE_VERSION",
     "SCHEMES",
     "SCHEME_LABELS",
     "SCHEME_ALIASES",
     "MODERN_HRC_METHOD_TO_SCHEME",
     "LEGACY_HRC_METHOD_TO_SCHEME",
     "FROZEN_HRC_METHOD_TO_SCHEME",
+    "DMU_FAMILY_SCHEMES",
+    "K_FAMILY_SCHEMES",
+    "NO_INVERSE_DRIVE",
+    "NO_INVERSE_DRIVE_SCHEME",
     "canonical_scheme",
     "scheme_from_hrc",
+    "inverse_scheme_from_hrc",
     "legacy_scheme_name",
     "scheme_short_label",
     "scheme_math_label",
@@ -89,6 +105,14 @@ __all__ = [
 # ---------------------------------------------------------------------------
 NESSPY_SCHEME_RENAME_VERSION: tuple[int, ...] = (1, 9, 0)
 NESSPY_SCHEME_RENAME_DATE: date = date(2026, 8, 3)
+
+# The nesspy release that started recording the inverse (backward) drive in
+# out.csv: 1.10.1 (2026-08-04) added the `inverse_drive` / `inverse_scheme`
+# columns after `k`. Output older than this states no inverse drive at all, and
+# is read with the NO_INVERSE_DRIVE defaults below. Note that this release is
+# *newer* than the scheme renaming, so an `inverse_scheme` number is always in
+# the manuscript numbering -- there is no legacy catalogue for it.
+NESSPY_INVERSE_DRIVE_VERSION: tuple[int, ...] = (1, 10, 1)
 
 
 # canonical name -> (short label, LaTeX label for plots, human description).
@@ -159,6 +183,21 @@ FROZEN_HRC_METHOD_TO_SCHEME: dict[float, str] = {
     9993.0: "S3",  # old 93.0
 }
 
+# Which quantity a scheme's local perturbation acts on. S1 counts as dmu-family
+# because it *is* the identity perturbation of dmu (nesspy's `spatial_dmu`
+# returns its input unchanged at hrc_method 1.0), which is why it is a valid
+# inverse-drive scheme; S0 is the analysis-only undriven reference and belongs to
+# neither family.
+DMU_FAMILY_SCHEMES: frozenset[str] = frozenset({"S1", "S4", "S5", "S6"})
+K_FAMILY_SCHEMES: frozenset[str] = frozenset({"S2", "S3"})
+
+# What an out.csv without the inverse-drive columns means: no drive on the
+# backward (inactive -> active) reaction at all. exp(0.0) == 1.0 leaves every
+# backward rate untouched, so S0 -- the undriven reference -- is the scheme of
+# that channel, and every analysis of pre-1.10.1 data is unaffected.
+NO_INVERSE_DRIVE: float = 0.0
+NO_INVERSE_DRIVE_SCHEME: str = "S0"
+
 # NOTE on S6: nesspy changed S6 from the linear form dmu_0 * (1 - n'/4) to the
 # exponential dmu_0 * exp(-n') on 2026-08-04 (nesspy 1.9.1). Legacy hrc_method
 # 7.0 and frozen 997.0 therefore refer to the linear form while modern
@@ -228,6 +267,46 @@ def scheme_from_hrc(hrc: bool, hrc_method: float, legacy: bool = False) -> str:
         f"(plus the frozen legacy band {sorted(FROZEN_HRC_METHOD_TO_SCHEME)}). "
         f"If this file predates nesspy 1.9.0, pass legacy=True."
     )
+
+
+def inverse_scheme_from_hrc(
+    hrc: bool, inverse_scheme: float, inverse_drive: float | None = None
+) -> str:
+    """Map an ``out.csv`` inverse-drive record onto a canonical scheme.
+
+    The inverse (backward) drive of nesspy >= 1.10.0 carries its own scheme
+    number, recorded as the ``inverse_scheme`` column / ``# inverse_drive_scheme``
+    header entry. It is resolved like the forward one, with two differences:
+
+    * **No legacy catalogue.** The inverse drive is newer than the scheme
+      renaming (:data:`NESSPY_INVERSE_DRIVE_VERSION` > 1.9.0), so its number is
+      always the manuscript numbering.
+    * **Δμ-family only.** nesspy evaluates it through ``hrc.spatial_dmu``, so a
+      k-family number (S2/S3) is invalid and raises ``ValueError`` there; it
+      raises here too rather than being silently reinterpreted.
+
+    ``hrc`` inactive → ``"S1"``: nesspy only perturbs the inverse drive inside its
+    ``if hrc:`` branch (``nesspy/src/kmc.py``), so with hrc off the backward drive
+    is homogeneous whatever ``inverse_scheme`` says.
+
+    Passing ``inverse_drive`` reports a *zero* inverse drive as
+    :data:`NO_INVERSE_DRIVE_SCHEME` (``"S0"``, the undriven reference): with
+    ``exp(0.0) == 1.0`` the backward rates are untouched no matter which scheme
+    the file names, so this is the same answer legacy output gets and keeps the
+    two consistent. Omit it to resolve the recorded number unconditionally.
+    """
+    if inverse_drive is not None and float(inverse_drive) == 0.0:
+        return NO_INVERSE_DRIVE_SCHEME
+
+    scheme = scheme_from_hrc(hrc, inverse_scheme, legacy=False)
+    if scheme in K_FAMILY_SCHEMES:
+        raise ValueError(
+            f"inverse_scheme={inverse_scheme} resolves to {scheme}, which "
+            f"rescales the base rate k. The inverse drive is a Delta-mu drive, "
+            f"so only {sorted(DMU_FAMILY_SCHEMES)} are valid (nesspy raises the "
+            f"same way in hrc.spatial_dmu)."
+        )
+    return scheme
 
 
 def legacy_scheme_name(scheme: str) -> str:

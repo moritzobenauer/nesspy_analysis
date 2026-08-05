@@ -8,6 +8,9 @@ import logging
 from .schemes import (
     NESSPY_SCHEME_RENAME_DATE,
     NESSPY_SCHEME_RENAME_VERSION,
+    NO_INVERSE_DRIVE,
+    NO_INVERSE_DRIVE_SCHEME,
+    inverse_scheme_from_hrc,
     is_legacy_scheme_numbering,
     legacy_scheme_name,
     parse_version_header,
@@ -240,6 +243,110 @@ def get_hrc(file: Path) -> tuple[bool, float] | None:
     return (hrc, hrc_method)
 
 
+def _get_header_float(file: Path, key: str) -> float | None:
+    """Value of a single ``# <key>: <value>`` header entry, or None if absent.
+
+    The key is compared exactly (so ``inverse_drive`` does not also match
+    ``inverse_drive_scheme``) and a non-numeric value reads as absent.
+    """
+    with open(file, "r") as f:
+        for line in f:
+            if not line.startswith("#") or ":" not in line:
+                continue
+            name, _, value = line.lstrip("#").partition(":")
+            if name.strip() == key:
+                try:
+                    return float(value.strip())
+                except ValueError:
+                    return None
+    return None
+
+
+def get_inverse_drive(file: Path) -> tuple[float, float] | None:
+    """Read the inverse (backward) drive of an out.csv, as recorded by nesspy.
+
+    Returns the raw ``(inverse_drive, inverse_scheme)`` pair -- the drive on the
+    inactive → active reaction and the *number* of the scheme perturbing it, not
+    yet resolved onto an S-name (that is
+    :func:`~nesspy_analysis.schemes.inverse_scheme_from_hrc`, wrapped by
+    :func:`get_inverse_drive_and_scheme`).
+
+    Both values are read from the per-row ``inverse_drive`` / ``inverse_scheme``
+    columns that nesspy >= 1.10.1 writes after ``k``, falling back to the
+    ``# inverse_drive`` / ``# inverse_drive_scheme`` header entries (nesspy
+    >= 1.10.0 writes those with the rest of the merged simulation input, so a file
+    can state them without having the columns).
+
+    ``None`` means the file states neither, i.e. output from before the inverse
+    drive existed; those are read with the ``NO_INVERSE_DRIVE`` defaults.
+
+    Both values are simulation *inputs*, written unchanged into every row, so an
+    out.csv holding more than one value of either is inconsistent and raises
+    ``ValueError``.
+    """
+    df = pd.read_csv(file, comment="#", header=0)
+
+    if {"inverse_drive", "inverse_scheme"}.issubset(df.columns):
+        values: list[float] = []
+        for column in ("inverse_drive", "inverse_scheme"):
+            unique = np.unique(
+                np.round(pd.to_numeric(df[column], errors="coerce").dropna().values, 8)
+            )
+            if unique.size > 1:
+                raise ValueError(
+                    f"Inconsistent '{column}' within {file}: {sorted(unique)}"
+                )
+            if unique.size == 0:
+                # Columns present but no measurement rows -> nothing to read
+                # here; the header block may still state the values.
+                values = []
+                break
+            values.append(float(unique[0]))
+        if len(values) == 2:
+            return (values[0], values[1])
+
+    drive = _get_header_float(file, "inverse_drive")
+    scheme = _get_header_float(file, "inverse_drive_scheme")
+    if drive is None and scheme is None:
+        return None
+    if drive is None:
+        drive = NO_INVERSE_DRIVE
+    if scheme is None:
+        # nesspy's own default (Config: inverse_drive_scheme = 1.0, i.e. S1, the
+        # identity perturbation).
+        scheme = 1.0
+    return (drive, scheme)
+
+
+def get_inverse_drive_and_scheme(
+    file: Path, hrc: bool | None = None
+) -> tuple[float, str]:
+    """The inverse drive of one out.csv together with its canonical scheme.
+
+    Returns ``(drive_reverse, drive_scheme_reverse)`` as stored on
+    :class:`~nesspy_analysis.classes.Thermos`. Output that records no inverse
+    drive -- everything written before nesspy 1.10.1 -- reads as
+    ``(0.0, "S0")``: no drive on the backward reaction, so that channel is
+    undriven and nothing about such an analysis changes.
+
+    ``hrc`` may be passed when the caller has already read it (it decides whether
+    the scheme is applied at all, see
+    :func:`~nesspy_analysis.schemes.inverse_scheme_from_hrc`); otherwise it is
+    read from this file's header.
+    """
+    inverse = get_inverse_drive(file)
+    if inverse is None:
+        return (NO_INVERSE_DRIVE, NO_INVERSE_DRIVE_SCHEME)
+
+    drive, scheme_number = inverse
+    if hrc is None:
+        hrc_entries = get_hrc(file)
+        # A file with no hrc entries predates heterogeneous driving, so its
+        # driving is homogeneous by construction.
+        hrc = hrc_entries[0] if hrc_entries is not None else False
+    return (drive, inverse_scheme_from_hrc(hrc, scheme_number, drive))
+
+
 # Directories we have already reported as legacy, so a sweep over dozens of mu
 # subfolders prints one line per run instead of one per file.
 _LEGACY_NOTICES: set[Path] = set()
@@ -380,15 +487,22 @@ def read_csv(file: Path, n_samples: int=6, bootstrap: bool=True) -> tuple[pd.Dat
     # onto the canonical S0-S6 naming and the remapping is reported once per
     # directory.
     version = get_nesspy_version(file)
+    hrc_entries = get_hrc(file)
     scheme = report_legacy_output(file)
     if scheme is None:
         # Either modern output or a file that states no hrc entries at all.
-        hrc_entries = get_hrc(file)
         scheme = (
             scheme_from_hrc(*hrc_entries, legacy=version.legacy_schemes)
             if hrc_entries is not None
             else None
         )
+
+    # The inverse (backward) drive and its scheme, recorded by nesspy >= 1.10.1.
+    # Files without it read as (0.0, "S0"), i.e. an undriven backward reaction,
+    # which is what every data set analyzed before this existed already assumed.
+    drive_reverse, drive_scheme_reverse = get_inverse_drive_and_scheme(
+        file, hrc=hrc_entries[0] if hrc_entries is not None else None
+    )
 
     # Read the CSV file into a DataFrame
 
@@ -439,6 +553,9 @@ def read_csv(file: Path, n_samples: int=6, bootstrap: bool=True) -> tuple[pd.Dat
         "nesspy_version": version.version,
         "legacy_schemes": version.legacy_schemes,
         "scheme": scheme,
+        # Inverse (backward) drive; (0.0, "S0") for output that predates it.
+        "drive_reverse": drive_reverse,
+        "drive_scheme_reverse": drive_scheme_reverse,
     }
 
     return (data_points, header_info)

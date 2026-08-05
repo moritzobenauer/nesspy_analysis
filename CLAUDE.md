@@ -100,14 +100,21 @@ functions are available as `npa.<name>`.
   `# nesspy Version ..., Release Date: ...` banner (`get_nesspy_version()`,
   `is_legacy_output()`) and the `# hrc`/`# hrc_method` entries (`get_hrc()`), which
   is how legacy files get their driving scheme remapped (`report_legacy_output()`).
+  `get_inverse_drive()` / `get_inverse_drive_and_scheme()` read the inverse
+  (backward) drive that nesspy >= 1.10.1 records (`inverse_drive` /
+  `inverse_scheme` columns, `# inverse_drive` / `# inverse_drive_scheme` header
+  entries as a fallback); output without it reads as `(0.0, "S0")`.
 - **`schemes.py`** — the driving-scheme registry: the canonical `S0`-`S6` names,
   their labels, the legacy-alias table (`canonical_scheme()`), both `hrc_method`
-  catalogues (`scheme_from_hrc(..., legacy=...)`), and the nesspy version gate that
-  decides between them (`is_legacy_scheme_numbering()`). It imports nothing from the
-  package, so both `read_csv.py` and `classes.py` can use it.
+  catalogues (`scheme_from_hrc(..., legacy=...)`), the nesspy version gate that
+  decides between them (`is_legacy_scheme_numbering()`), and the inverse-drive
+  resolver (`inverse_scheme_from_hrc()`, Δμ-family only). It imports nothing from
+  the package, so both `read_csv.py` and `classes.py` can use it.
 - **`classes.py`** — the top-level analysis API.
   - `Thermos` (frozen dataclass) — thermodynamic params for a system (`jhom`, `jhet`,
-    `beta`, `fres`, `k`, `dmu`, `method`); consumed by FLEX theory.
+    `beta`, `fres`, `k`, `dmu`, `method`); consumed by FLEX theory. It also carries
+    the inverse (backward) drive `drive_reverse` / `drive_scheme_reverse`, which is
+    currently *only read and stored* — no physics consumes it yet.
   - `Lattice2D` — lattice geometry / PBC / restricted-sampling metadata.
   - `DynamicalOrderDisorder(name, base_path)` — the main workhorse. Loads all
     `out.csv` under `base_path` and computes: raw data (`get_data`, `get_raw_data`),

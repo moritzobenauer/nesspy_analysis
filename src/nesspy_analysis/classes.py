@@ -3,7 +3,7 @@ import pandas as pd
 from .iterdir import iterdirs, find_all_final_configs
 from .read_csv import (
     read_csv, get_m_vals, get_epsilon, get_epsilon_het,
-    get_nesspy_version, report_legacy_run,
+    get_nesspy_version, report_legacy_run, get_inverse_drive_and_scheme,
 )
 from .schemes import (
     SCHEMES, SCHEME_LABELS, SCHEME_ALIASES, canonical_scheme, scheme_from_hrc,
@@ -36,6 +36,19 @@ class Thermos:
     # __post_init__, so `Thermos(method="HOMO").method` reads back as "S1".
     method: str = "S0"
 
+    # The inverse ("reverse") chemical drive: nesspy >= 1.10.0 gives the backward
+    # inactive -> active reaction (-1 -> 1, -2 -> 2) its own drive, multiplying
+    # that rate by exp(drive_reverse), with its own Delta-mu-family scheme. Both
+    # are recorded in out.csv from nesspy 1.10.1 on and read by
+    # `get_inverse_drive_and_scheme()`; output older than that states no inverse
+    # drive and reads as the defaults below, an undriven backward channel.
+    #
+    # These are stored for provenance only -- no consumer (flex.py,
+    # get_steady_state_probabilities_numerical) uses them yet, so a nonzero
+    # inverse drive is not currently reflected in any theory curve.
+    drive_reverse: float = 0.0
+    drive_scheme_reverse: str = "S0"
+
     # In the future it might be even more useful to provide an interaction matrix
     # for more complex systems. By default it is derived from jhom/jhet in
     # __post_init__ (diagonal = jhom, off-diagonal = jhet); pass it explicitly to
@@ -47,6 +60,9 @@ class Thermos:
         # scheme name so every consumer sees the canonical S0-S6 spelling; an
         # unknown name raises here rather than silently reaching the physics.
         object.__setattr__(self, "method", canonical_scheme(self.method))
+        object.__setattr__(
+            self, "drive_scheme_reverse", canonical_scheme(self.drive_scheme_reverse)
+        )
 
         # Only build the matrix from jhom/jhet when the caller didn't supply
         # one, so the interaction matrix stays consistent with the detected
@@ -375,6 +391,11 @@ class DynamicalOrderDisorder:
         that file's own nesspy version banner; a folder written by a pre-1.9.0
         nesspy is reported on stdout together with the remapping applied. An
         ``hrc_method`` with no counterpart here raises ``NotImplementedError``.
+
+        The inverse (backward) drive ``drive_reverse`` and its scheme
+        ``drive_scheme_reverse`` are read the same way, from the ``inverse_drive``
+        / ``inverse_scheme`` columns that nesspy >= 1.10.1 writes; a folder of
+        older runs states no inverse drive and yields ``(0.0, 'S0')``.
         """
 
         def _as_bool(v):
@@ -391,6 +412,13 @@ class DynamicalOrderDisorder:
         # one single scheme (S5). We therefore compare the *resolved* schemes.
         schemes: set[str] = set()
         legacy_examples: list[tuple] = []
+
+        # The inverse (backward) drive and its scheme, recorded by nesspy
+        # >= 1.10.1. Files that predate it contribute (0.0, "S0") -- an undriven
+        # backward channel -- so a folder of older runs is detected exactly as
+        # before.
+        drive_reverse_vals: set[float] = set()
+        reverse_schemes: set[str] = set()
 
         for f in self.files:
             _df = pd.read_csv(f, comment="#", skip_blank_lines=True)
@@ -419,6 +447,12 @@ class DynamicalOrderDisorder:
                 next(iter(method_file)) if method_file else float("nan")
             )
 
+            drive_reverse_file, reverse_scheme_file = get_inverse_drive_and_scheme(
+                f, hrc=hrc
+            )
+            drive_reverse_vals.add(round(drive_reverse_file, 8))
+            reverse_schemes.add(reverse_scheme_file)
+
             version = get_nesspy_version(f)
             scheme = scheme_from_hrc(
                 hrc, hrc_method, legacy=version.legacy_schemes
@@ -433,6 +467,7 @@ class DynamicalOrderDisorder:
             ("k", k_vals),
             ("jhom", jhom_vals),
             ("jhet", jhet_vals),
+            ("drive_reverse", drive_reverse_vals),
         ]:
             if len(vals) != 1:
                 raise ValueError(
@@ -444,6 +479,11 @@ class DynamicalOrderDisorder:
                 f"Inconsistent driving scheme across the {len(self.files)} "
                 f"out.csv files: {sorted(schemes)}"
             )
+        if len(reverse_schemes) != 1:
+            raise ValueError(
+                f"Inconsistent inverse-drive scheme across the {len(self.files)} "
+                f"out.csv files: {sorted(reverse_schemes)}"
+            )
 
         fres = float(next(iter(fres_vals)))
         dmu = float(next(iter(dmu_vals)))
@@ -451,6 +491,8 @@ class DynamicalOrderDisorder:
         jhom = float(next(iter(jhom_vals)))
         jhet = float(next(iter(jhet_vals)))
         method = next(iter(schemes))
+        drive_reverse = float(next(iter(drive_reverse_vals)))
+        drive_scheme_reverse = next(iter(reverse_schemes))
 
         # Report the legacy remapping once for the whole run directory, in case
         # __init__ could not (an hrc_method it cannot map is only resolvable
@@ -459,12 +501,15 @@ class DynamicalOrderDisorder:
             report_legacy_run(self.base_path, self.files)
 
         thermos = Thermos(
-            jhom=jhom, jhet=jhet, fres=fres, dmu=dmu, k=k, method=method
+            jhom=jhom, jhet=jhet, fres=fres, dmu=dmu, k=k, method=method,
+            drive_reverse=drive_reverse,
+            drive_scheme_reverse=drive_scheme_reverse,
         )
         logger.info(
             "Detected Thermos from files: jhom=%s, jhet=%s, fres=%s, dmu=%s, "
-            "k=%s, method=%s (%s)",
+            "k=%s, method=%s (%s), drive_reverse=%s, drive_scheme_reverse=%s",
             jhom, jhet, fres, dmu, k, method, scheme_description(method),
+            drive_reverse, drive_scheme_reverse,
         )
         return thermos
 

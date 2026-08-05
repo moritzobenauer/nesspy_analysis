@@ -55,6 +55,36 @@ supersaturation bar chart. It accepts the following arguments:
 
 ## Changelog
 
+### 0.7.0
+
+- Reads the **inverse (backward) chemical drive** that `nesspy` 1.10.0 introduced and
+  1.10.1 records in `out.csv` as the `inverse_drive` / `inverse_scheme` columns (written
+  after `k`). It drives the inactive → active reaction (`-1 → 1`, `-2 → 2`), multiplying
+  that rate by `exp(inverse_drive)`, with its own Δμ-family scheme.
+- `Thermos` gained two fields: `drive_reverse` (float) and `drive_scheme_reverse`
+  (canonical `S*` name, normalised like `method`). `DynamicalOrderDisorder.get_thermos_from_file()`
+  detects both and requires them to be consistent across a run directory, and
+  `read_csv()` reports them in its `header_info` dict.
+- **Nothing changes for any data analyzed so far.** Output without those columns —
+  everything written before nesspy 1.10.1 — reads as `drive_reverse = 0.0` and
+  `drive_scheme_reverse = "S0"`, i.e. an undriven backward channel, which is exactly what
+  such runs did (`exp(0.0) == 1.0`). Verified against the legacy S6 growth runs on
+  `/Volumes/2025`: identical `m`, `growth_speed` and forward scheme.
+- New readers `get_inverse_drive()` (the raw `(inverse_drive, inverse_scheme)` pair, from
+  the columns, falling back to the `# inverse_drive` / `# inverse_drive_scheme` header
+  entries) and `get_inverse_drive_and_scheme()` (the resolved `(drive_reverse,
+  drive_scheme_reverse)` pair) in `read_csv.py`, plus `inverse_scheme_from_hrc()` in
+  `schemes.py`. The resolver mirrors `nesspy`: `hrc` inactive → S1 (nesspy only perturbs
+  the inverse drive inside its `if hrc:` branch), a k-family number (S2/S3) raises
+  `ValueError` as `hrc.spatial_dmu` does, a zero drive reads as S0, and there is no legacy
+  catalogue — the inverse drive is newer than the 1.9.0 renaming, so its number is always
+  the manuscript numbering.
+- **These values are stored for provenance only.** No consumer uses them yet: `flex.py`
+  and `get_steady_state_probabilities_numerical()` still model the forward drive alone, so
+  a nonzero inverse drive is not currently reflected in any theory curve.
+- New tests in `tests/test_inverse_drive.py` pin the scheme resolution, both read paths,
+  the legacy defaults, and the run-level consistency check.
+
 ### 0.6.2
 
 - **BUGFIX** 2026-08-05: S6's colour-conditioned drive was damped by each site's
