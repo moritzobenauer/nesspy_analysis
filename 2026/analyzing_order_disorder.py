@@ -230,7 +230,9 @@ def analyze_directory(
         summary["dgrowth_speed_at_critical"] = dgs
 
     # driving-scheme labels, recorded on every analysis output so a dataset's
-    # scheme is unambiguous downstream.
+    # scheme is unambiguous downstream. thermos.method is already the canonical
+    # S0-S6 name, so scheme_short only matters for hand-built Thermos objects
+    # carrying a pre-rename spelling.
     scheme_short = npa.scheme_short_label(thermos.method)
     scheme_math = npa.scheme_math_label(thermos.method)
 
@@ -247,7 +249,7 @@ def analyze_directory(
     with open(data_path / CRITICAL_SUPERSAT_TXT, "w") as fh:
         fh.write(f"critical_supersat (inflection point of m vs log(S)): {critical_supersat}\n")
         fh.write(f"critical_supersat_error (mean dphi spacing bracketing the inflection point): {critical_supersat_err}\n")
-        fh.write(f"scheme: {scheme_short} (method={thermos.method})\n")
+        fh.write(f"scheme: {scheme_short} ({npa.scheme_description(thermos.method)})\n")
 
     # save an order parameter versus logarithmic supersaturation plot
     fig, ax = plt.subplots(1, 2, figsize=(12, 5))

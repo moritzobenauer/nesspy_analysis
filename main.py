@@ -54,7 +54,7 @@ if __name__ == "__main__":
                                  fres=-20.0,
                                  k=1.0,
                                  dmu=0.0,
-                                 method="NODRIVE",)
+                                 method="S0",)
 
      analysis = npa.DynamicalOrderDisorder('test', base_path)
      df = analysis.get_data()

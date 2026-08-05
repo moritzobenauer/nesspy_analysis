@@ -14,7 +14,7 @@ from nesspy_analysis.classes import (
 
 def test_thermos_defaults_and_frozen():
     t = Thermos()
-    assert (t.jhom, t.jhet, t.method) == (-3.5, -2.0, "NODRIVE")
+    assert (t.jhom, t.jhet, t.method) == (-3.5, -2.0, "S0")
     assert t.epsilon_matrix.shape == (2, 2)
     with pytest.raises(dataclasses.FrozenInstanceError):
         t.jhom = 0.0
@@ -67,18 +67,18 @@ def test_steady_state_probabilities_normalised():
     # The two returned occupancies partition the 5-state stationary vector.
     p_active, p_non_bonding = get_steady_state_probabilities_numerical(
         epsilon_homo=-3.5, epsilon_hetero=-2.0, mu=1.0,
-        F=np.exp(-2.0), M=1.0, k=1.0, environment=(1, 1), scheme="HOMO",
+        F=np.exp(-2.0), M=1.0, k=1.0, environment=(1, 1), scheme="S1",
     )
     assert p_active + p_non_bonding == pytest.approx(1.0)
     assert 0.0 <= p_active <= 1.0 and 0.0 <= p_non_bonding <= 1.0
 
 
 @pytest.mark.parametrize(
-    "scheme", ["HOMO", "SCHEME91", "SCHEME93", "SCHEME3", "SCHEME6", "SCHEME7"]
+    "scheme", ["S1", "S2", "S3", "S4", "S5", "S6"]
 )
 def test_steady_state_probabilities_all_schemes_normalised(scheme):
     # Every registered driving scheme must return a valid probability partition
-    # for an asymmetric environment (so SCHEME7's red/blue split is exercised).
+    # for an asymmetric environment (so S6's red/blue split is exercised).
     p_active, p_non_bonding = get_steady_state_probabilities_numerical(
         epsilon_homo=-3.5, epsilon_hetero=-2.0, mu=1.0,
         F=np.exp(-2.0), M=np.exp(0.5), k=1.0, environment=(2, 0), scheme=scheme,
@@ -95,38 +95,50 @@ def test_steady_state_probabilities_unknown_scheme_raises():
         )
 
 
-def test_scheme7_red_blue_drives_differ():
-    # SCHEME7 conditions the drive on colour, so an asymmetric environment must
-    # break the symmetry between the red-active and blue-active occupancies that
-    # a symmetric scheme (e.g. SCHEME6) preserves at these equal couplings.
+def test_scheme6_red_blue_drives_differ():
+    # S6 conditions the drive on colour, so an asymmetric environment must break
+    # the symmetry between the red-active and blue-active occupancies that a
+    # symmetric scheme (e.g. S5) preserves at these equal couplings.
     kwargs = dict(
         epsilon_homo=-3.5, epsilon_hetero=-3.5, mu=1.0,
         F=np.exp(-1.0), M=np.exp(1.0), k=1.0, environment=(2, 0),
     )
-    p7, _ = get_steady_state_probabilities_numerical(scheme="SCHEME7", **kwargs)
-    p6, _ = get_steady_state_probabilities_numerical(scheme="SCHEME6", **kwargs)
+    p6, _ = get_steady_state_probabilities_numerical(scheme="S6", **kwargs)
+    p5, _ = get_steady_state_probabilities_numerical(scheme="S5", **kwargs)
     # The colour-conditioned drive changes the active occupancy relative to the
     # symmetric neighbour-difference scheme for this asymmetric environment.
-    assert p7 != pytest.approx(p6)
+    assert p6 != pytest.approx(p5)
 
 
-def test_scheme_from_hrc_mapping():
-    assert scheme_from_hrc(False, 91.0) == "HOMO"   # hrc off -> homogeneous
-    assert scheme_from_hrc(False, float("nan")) == "HOMO"
-    assert scheme_from_hrc(True, 91.0) == "SCHEME91"
-    assert scheme_from_hrc(True, 93.0) == "SCHEME93"
-    assert scheme_from_hrc(True, 3.0) == "SCHEME3"
-    assert scheme_from_hrc(True, 6.0) == "SCHEME6"
-    assert scheme_from_hrc(True, 7.0) == "SCHEME7"
+def test_scheme_from_hrc_legacy_mapping():
+    # Legacy (nesspy < 1.9.0) hrc_method catalogue.
+    assert scheme_from_hrc(False, 91.0, legacy=True) == "S1"  # hrc off -> homogeneous
+    assert scheme_from_hrc(False, float("nan"), legacy=True) == "S1"
+    assert scheme_from_hrc(True, 91.0, legacy=True) == "S2"
+    assert scheme_from_hrc(True, 93.0, legacy=True) == "S3"
+    assert scheme_from_hrc(True, 3.0, legacy=True) == "S4"
+    assert scheme_from_hrc(True, 6.0, legacy=True) == "S5"
+    assert scheme_from_hrc(True, 7.0, legacy=True) == "S6"
 
 
 def test_scheme_from_hrc_unknown_method_raises():
     with pytest.raises(NotImplementedError):
-        scheme_from_hrc(True, 42.0)
+        scheme_from_hrc(True, 42.0, legacy=True)
 
 
 def test_scheme_labels():
-    # The short labels follow the S-numbering from the scheme note.
+    # The short labels follow the S-numbering from the scheme note, and the
+    # pre-rename spellings still resolve to them.
+    assert scheme_short_label("S1") == "S1"
     assert scheme_short_label("HOMO") == "S1"
     assert scheme_short_label("SCHEME7") == "S6"
     assert scheme_math_label("HOMO") == r"$\mathcal{S}1$"
+
+
+def test_thermos_normalises_legacy_scheme_names():
+    # Legacy spellings are accepted but read back canonically.
+    assert Thermos(method="HOMO").method == "S1"
+    assert Thermos(method="SCHEME_91").method == "S2"
+    assert Thermos(method="scheme7").method == "S6"
+    with pytest.raises(ValueError):
+        Thermos(method="NOPE")

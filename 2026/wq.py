@@ -7,7 +7,11 @@ import nesspy_analysis as npa
 
 
 def get_steady_state_probabilities_numerical(epsilon_homo, epsilon_hetero, mu, F, M, k, environment,
-                                             scheme='HOMO'):
+                                             scheme='S1'):
+
+    # Driving schemes are named S0-S6 (see nesspy_analysis/schemes.py); legacy
+    # spellings such as 'HOMO' or 'SCHEME6' are normalised to those names.
+    scheme = npa.canonical_scheme(scheme)
 
     n_red, n_blue = environment
 
@@ -15,14 +19,14 @@ def get_steady_state_probabilities_numerical(epsilon_homo, epsilon_hetero, mu, F
     U_blue = np.exp(n_red*epsilon_hetero + n_blue*epsilon_homo)
     z = np.exp(mu)
 
-    if scheme=='HOMO':
+    if scheme=='S1':
         k = 1.0
-    elif scheme=='SCHEME91':
+    elif scheme=='S2':
         k = k*np.exp(-(n_red+n_blue))
-    elif scheme=='SCHEME93':
+    elif scheme=='S3':
         k = k*np.exp(-np.abs(n_red-n_blue))
 
-    elif scheme=='SCHEME6':
+    elif scheme=='S5':
         dmu0 = np.log(M)
         # 2026-07-15: Fixed global variable leak (changed dmu to dmu0)
         M = np.exp(dmu0*np.exp(-np.abs(n_red-n_blue)))
@@ -132,7 +136,7 @@ if __name__ == "__main__":
     epsilon_homo = -4.0
     epsilon_hetero = -2.0
     k=1.0
-    SCHEME='HOMO'
+    SCHEME='S1'
     F = np.exp(fres)
     M = np.exp(dmu)
 

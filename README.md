@@ -55,6 +55,59 @@ supersaturation bar chart. It accepts the following arguments:
 
 ## Changelog
 
+### 0.6.0
+
+- **Driving schemes are now named S0-S6 everywhere.** The canonical scheme
+  strings are `"S0"` ... `"S6"` (`S0` = undriven reference, `S1` = homogeneous
+  driving, `S2`-`S6` = the heterogeneous schemes), matching the manuscript and
+  the numbering `nesspy` itself adopted in its 1.9.0 release. The registry moved
+  into a new module `nesspy_analysis/schemes.py` (`read_csv.py` needs it too, and
+  cannot import from `classes.py`); everything is still re-exported, so
+  `npa.scheme_from_hrc`, `npa.SCHEME_LABELS` etc. keep working.
+  The pre-rename spellings (`NODRIVE`, `HOMO`, `SCHEME91`, `SCHEME_3`, ...) remain
+  accepted as aliases and are normalised by the new `canonical_scheme()`, which
+  raises on anything unrecognised instead of letting a typo reach the physics.
+  `Thermos.method` normalises itself, so `Thermos(method="HOMO").method == "S1"`,
+  and its default is now `"S0"` (same scheme as the old `"NODRIVE"` default).
+  Bare numbers are deliberately rejected by `canonical_scheme()`: `3` is
+  ambiguous between the scheme name S3 and the `hrc_method` value 3.0.
+- **Backward compatibility for legacy `out.csv` files.** `nesspy 1.9.0`
+  (2026-08-03) renamed the schemes, which changed what the `hrc_method` number in
+  an `out.csv` *means* — legacy `6.0` is S5 while modern `6.0` is S6, and legacy
+  `3.0` is S4 while modern `3.0` is S3. `read_csv.get_nesspy_version()` now reads
+  the `# nesspy Version ..., Release Date: ...` banner of each file and
+  `is_legacy_output()` decides which catalogue applies, so
+  `scheme_from_hrc(hrc, hrc_method, legacy=...)` maps legacy `91.0/93.0/3.0/6.0/7.0`
+  → `S2/S3/S4/S5/S6` and modern `1.0`-`6.0` → `S1`-`S6` (plus nesspy's frozen
+  `99`-prefixed legacy band). The version is the primary discriminator and the
+  release date only a fallback, because nesspy 1.8.0 shares the 2026-08-03
+  release date with the renaming 1.9.0 but still used the old numbering. Files
+  with no banner at all are assumed legacy.
+- Reading a legacy folder **prints one info line to stdout** stating that the
+  files are legacy and which remapping was applied, e.g. `[nesspy_analysis]
+  Legacy nesspy output in <dir> (13/13 out.csv files): written by nesspy 1.4.1,
+  released 2025/11/02, ... Remapped legacy hrc=True, hrc_method=6.0 -> S5
+  (previously called 'SCHEME6').` It is printed once per directory subtree, so a
+  sweep reports one line per run rather than one per `mu` subfolder
+  (`reset_legacy_notices()` clears the cache).
+- `DynamicalOrderDisorder.get_thermos_from_file()` resolves the scheme **per
+  file** and then requires the resolved schemes to agree, instead of requiring the
+  raw `hrc_method` numbers to agree. A folder that mixes pre- and post-rename
+  output of the same physical scheme now analyses correctly, and a folder that
+  genuinely mixes schemes still raises `ValueError`.
+- `read_csv()`'s `header_info` gained `nesspy_version`, `legacy_schemes` and
+  `scheme`, so every loaded data point carries its own scheme provenance.
+- **BUGFIX** 2026-08-05: `properly_fitting_a_curve.py` called
+  `npa.calculate_dphi(..., drivetype="NODRIVE")`, but `calculate_dphi()` has no
+  `drivetype` argument — the scheme comes from `Thermos.method`. The script now
+  passes `method="S0"` to `Thermos`.
+- Note on S6: `nesspy` changed S6 from the linear form `dmu_0 * (1 - n'/4)` to the
+  exponential `dmu_0 * exp(-n')` on 2026-08-04, so legacy `hrc_method=7.0` refers
+  to the linear one. This package's two S6 implementations disagree on that
+  (`get_steady_state_probabilities_numerical()` is exponential, `flex.py` uses
+  `dmu/2`, the linear form at `n'=2`); both are documented at their call sites and
+  the numerics are unchanged by this release.
+
 ### 0.5.1
 
 - **BUGFIX**: The per-dataset order-parameter figure written by

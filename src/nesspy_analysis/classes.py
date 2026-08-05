@@ -1,7 +1,14 @@
 from pathlib import Path
 import pandas as pd
 from .iterdir import iterdirs, find_all_final_configs
-from .read_csv import read_csv, get_m_vals, get_epsilon, get_epsilon_het
+from .read_csv import (
+    read_csv, get_m_vals, get_epsilon, get_epsilon_het,
+    get_nesspy_version, report_legacy_run,
+)
+from .schemes import (
+    SCHEMES, SCHEME_LABELS, SCHEME_ALIASES, canonical_scheme, scheme_from_hrc,
+    scheme_short_label, scheme_math_label, scheme_description,
+)
 from .fitting import fit_lorentzian, lorentzian, polynomial, fit_polynomial, sigmoid, fit_sigmoid
 import numpy as np
 from scipy.stats import sem
@@ -23,7 +30,11 @@ class Thermos:
     fres: float = -20.0
     k: float = 1.0
     dmu: float = 0.0
-    method: str = "NODRIVE"
+
+    # Driving scheme, named S0-S6 (see schemes.py). The pre-rename spellings
+    # ("NODRIVE", "HOMO", "SCHEME91", ...) are accepted and normalised in
+    # __post_init__, so `Thermos(method="HOMO").method` reads back as "S1".
+    method: str = "S0"
 
     # In the future it might be even more useful to provide an interaction matrix
     # for more complex systems. By default it is derived from jhom/jhet in
@@ -32,9 +43,14 @@ class Thermos:
     epsilon_matrix: np.array = None
 
     def __post_init__(self):
-        # frozen dataclass -> assign via object.__setattr__. Only build the
-        # matrix from jhom/jhet when the caller didn't supply one, so the
-        # interaction matrix stays consistent with the detected couplings.
+        # frozen dataclass -> assign via object.__setattr__. Normalise the
+        # scheme name so every consumer sees the canonical S0-S6 spelling; an
+        # unknown name raises here rather than silently reaching the physics.
+        object.__setattr__(self, "method", canonical_scheme(self.method))
+
+        # Only build the matrix from jhom/jhet when the caller didn't supply
+        # one, so the interaction matrix stays consistent with the detected
+        # couplings.
         if self.epsilon_matrix is None:
             object.__setattr__(
                 self,
@@ -56,76 +72,14 @@ class Lattice2D:
 
 
 # ---------------------------------------------------------------------------
-# Driving-scheme registry.
+# Driving schemes.
 #
-# A "driving scheme" fixes how the non-equilibrium drive is applied as a
-# function of the local environment: depending on the scheme the base rate k or
-# the chemical drive dmu is rescaled by the neighbour counts. In the raw out.csv
-# files a scheme is encoded by the pair (hrc, hrc_method); here we map that pair
-# onto a single canonical method string (used throughout flex.py and the
-# numerical steady state below) and onto the short S-labels used in plots and
-# summaries. See dealing_with_different_schemes.md for the physics of each one.
+# The registry itself lives in schemes.py (it is needed by read_csv.py too, and
+# that module cannot import from here). The names are re-exported so that
+# `npa.scheme_from_hrc(...)` and `from nesspy_analysis.classes import
+# SCHEME_LABELS` keep working. Schemes are named S0-S6 throughout; the old
+# spellings ("HOMO", "SCHEME91", ...) are still accepted as aliases.
 # ---------------------------------------------------------------------------
-
-# hrc_method float (only consulted when hrc is active) -> canonical method string.
-_HRC_METHOD_TO_SCHEME = {
-    91.0: "SCHEME91",
-    93.0: "SCHEME93",
-    3.0: "SCHEME3",
-    6.0: "SCHEME6",
-    7.0: "SCHEME7",
-}
-
-# canonical method -> (short label, LaTeX label for plots, human description).
-# The LaTeX labels follow the S-numbering agreed in
-# dealing_with_different_schemes.md (S1 = homogeneous driving, S2..S6 = the HRC
-# schemes). NODRIVE is the undriven/equilibrium reference (no S-number in the
-# note); it is labelled S0 here so it never collides with a real scheme.
-SCHEME_LABELS = {
-    "NODRIVE":  ("S0", r"$\mathcal{S}0$", "undriven / equilibrium reference"),
-    "HOMO":     ("S1", r"$\mathcal{S}1$", "homogeneous driving"),
-    "SCHEME91": ("S2", r"$\mathcal{S}2$", "HRC 91.0: rate k rescaled by exp(-(n_red + n_blue))"),
-    "SCHEME93": ("S3", r"$\mathcal{S}3$", "HRC 93.0: rate k rescaled by exp(-|n_red - n_blue|)"),
-    "SCHEME3":  ("S4", r"$\mathcal{S}4$", "HRC 3.0: drive dmu rescaled by exp(-|n_red + n_blue|)"),
-    "SCHEME6":  ("S5", r"$\mathcal{S}5$", "HRC 6.0: drive dmu rescaled by exp(-|n_red - n_blue|)"),
-    "SCHEME7":  ("S6", r"$\mathcal{S}6$", "HRC 7.0: colour-conditioned drive dmu"),
-}
-
-
-def scheme_from_hrc(hrc: bool, hrc_method: float) -> str:
-    """Map the ``(hrc, hrc_method)`` flags from an out.csv onto a method string.
-
-    ``hrc`` inactive -> ``'HOMO'`` (homogeneous driving, S1) regardless of the
-    ``hrc_method`` value (which the note says "can be any float value" in that
-    case). When ``hrc`` is active the ``hrc_method`` float selects the
-    heterogeneous scheme; an unrecognised value raises ``NotImplementedError``
-    so a new scheme has to be registered deliberately.
-    """
-    if not hrc:
-        return "HOMO"
-    key = round(float(hrc_method), 1)
-    try:
-        return _HRC_METHOD_TO_SCHEME[key]
-    except KeyError:
-        raise NotImplementedError(
-            f"Active hrc with unknown hrc_method={hrc_method}; no driving-scheme "
-            f"mapping exists. Known methods: {sorted(_HRC_METHOD_TO_SCHEME)}."
-        )
-
-
-def scheme_short_label(method: str) -> str:
-    """Short scheme label (e.g. ``'S1'``) for summaries / filenames."""
-    return SCHEME_LABELS.get(method, (method, method, method))[0]
-
-
-def scheme_math_label(method: str) -> str:
-    r"""LaTeX scheme label (e.g. ``'$\mathcal{S}1$'``) for plot legends / titles."""
-    return SCHEME_LABELS.get(method, (method, method, method))[1]
-
-
-def scheme_description(method: str) -> str:
-    """One-line human-readable description of a driving scheme."""
-    return SCHEME_LABELS.get(method, (method, method, method))[2]
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +91,7 @@ def scheme_description(method: str) -> str:
 
 
 def get_steady_state_probabilities_numerical(
-    epsilon_homo, epsilon_hetero, mu, F, M, k, environment, scheme="HOMO"
+    epsilon_homo, epsilon_hetero, mu, F, M, k, environment, scheme="S1"
 ):
     """Stationary occupancy probabilities of the 5-state single-site model.
 
@@ -145,7 +99,9 @@ def get_steady_state_probabilities_numerical(
     ``(n_red, n_blue)``. The driving scheme rescales the rate constant ``k`` or
     the drive ``M`` as a function of the environment; see
     dealing_with_different_schemes.md for the definition of each ``scheme``.
+    ``scheme`` is one of S0-S6 (legacy aliases accepted).
     """
+    scheme = canonical_scheme(scheme)
     n_red, n_blue = environment
 
     U_red = np.exp(n_red * epsilon_homo + n_blue * epsilon_hetero)
@@ -154,33 +110,37 @@ def get_steady_state_probabilities_numerical(
 
     # The drive enters the generator separately for the red-active and
     # blue-active states, so we track M_red / M_blue independently. For every
-    # scheme except the colour-conditioned S6 (SCHEME7) the two are equal.
+    # scheme except the colour-conditioned S6 the two are equal.
     M_red = M
     M_blue = M
 
-    if scheme in ("HOMO", "NODRIVE"):
+    if scheme in ("S0", "S1"):
         # S1 / homogeneous driving: base rate is unity, drive used as read.
-        # NODRIVE is the undriven reference and behaves the same here (M = 1).
+        # S0 is the undriven reference and behaves the same here (M = 1).
         k = 1.0
-    elif scheme == "SCHEME91":
-        # S2 / HRC 91.0: rate rescaled by the total number of neighbours.
+    elif scheme == "S2":
+        # S2: rate rescaled by the total number of neighbours.
         k = k * np.exp(-(n_red + n_blue))
-    elif scheme == "SCHEME93":
-        # S3 / HRC 93.0: rate rescaled by the neighbour difference.
+    elif scheme == "S3":
+        # S3: rate rescaled by the neighbour difference.
         k = k * np.exp(-np.abs(n_red - n_blue))
-    elif scheme == "SCHEME3":
-        # S4 / HRC 3.0: drive dmu rescaled by |n_red + n_blue|; k unchanged.
+    elif scheme == "S4":
+        # S4: drive dmu rescaled by |n_red + n_blue|; k unchanged.
         dmu0 = np.log(M)
         M_red = M_blue = np.exp(dmu0 * np.exp(-np.abs(n_red + n_blue)))
-    elif scheme == "SCHEME6":
-        # S5 / HRC 6.0: drive dmu rescaled by |n_red - n_blue|; k unchanged.
+    elif scheme == "S5":
+        # S5: drive dmu rescaled by |n_red - n_blue|; k unchanged.
         dmu0 = np.log(M)
         M_red = M_blue = np.exp(dmu0 * np.exp(-np.abs(n_red - n_blue)))
-    elif scheme == "SCHEME7":
-        # S6 / HRC 7.0: colour-conditioned drive. A blue particle's drive is
-        # damped by its red neighbours and a red particle's by its blue
-        # neighbours, so the red- and blue-active states see different drives.
-        # k is left unchanged.
+    elif scheme == "S6":
+        # S6: colour-conditioned drive. A blue particle's drive is damped by its
+        # red neighbours and a red particle's by its blue neighbours, so the red-
+        # and blue-active states see different drives. k is left unchanged.
+        #
+        # This uses the *exponential* form exp(-n'), i.e. the S6 that nesspy has
+        # implemented since 2026-08-04 (hrc_method 6.0). Output written with the
+        # older linear form dmu_0 * (1 - n'/4) (legacy hrc_method 7.0, frozen
+        # 997.0) is therefore modelled by the exponential here.
         dmu0 = np.log(M)
         M_red = np.exp(dmu0 * np.exp(-np.abs(n_blue)))
         M_blue = np.exp(dmu0 * np.exp(-np.abs(n_red)))
@@ -188,7 +148,7 @@ def get_steady_state_probabilities_numerical(
         raise ValueError(f"Unknown driving scheme: {scheme}")
 
     # Set up the generator matrix. The red-active row uses M_red and the
-    # blue-active row uses M_blue (identical except for SCHEME7).
+    # blue-active row uses M_blue (identical except for S6).
     L = np.array(
         [
             [-2 * (z + z * F), z, z * F, z, z * F],
@@ -368,6 +328,11 @@ class DynamicalOrderDisorder:
             f"Initialized DynamicalOrderDisorder analysis for {self.name} with {self.csv_file_number} CSV files"
         )
 
+        # If this run was written by a pre-1.9.0 nesspy, say so once here for the
+        # whole run directory. Doing it at construction keeps the per-mu notices
+        # from read_csv() quiet no matter which method is called first.
+        report_legacy_run(self.base_path, self.files)
+
     def get_thermos_from_file(self) -> Thermos:
         """Auto-detect the Thermos parameters from the simulation output.
 
@@ -378,10 +343,14 @@ class DynamicalOrderDisorder:
         ``hrc`` and ``hrc_method`` are read from the data rows. Any inconsistency
         across files raises ``ValueError``.
 
-        The ``(hrc, hrc_method)`` pair is mapped onto the driving scheme via
-        :func:`scheme_from_hrc`: ``hrc`` inactive → ``'HOMO'`` (S1), and each
-        active ``hrc_method`` → its heterogeneous scheme (S2..S6). An
-        unrecognised active ``hrc_method`` raises ``NotImplementedError``.
+        The ``(hrc, hrc_method)`` pair of each file is mapped onto its canonical
+        driving scheme (S0-S6) via :func:`scheme_from_hrc`: ``hrc`` inactive →
+        ``'S1'`` (homogeneous driving), and each active ``hrc_method`` → its
+        heterogeneous scheme (S2..S6). Because nesspy 1.9.0 (2026-08-03) renamed
+        the schemes, the mapping is done **per file** with the catalogue matching
+        that file's own nesspy version banner; a folder written by a pre-1.9.0
+        nesspy is reported on stdout together with the remapping applied. An
+        ``hrc_method`` with no counterpart here raises ``NotImplementedError``.
         """
 
         def _as_bool(v):
@@ -390,24 +359,54 @@ class DynamicalOrderDisorder:
             return bool(v)
 
         fres_vals, dmu_vals, k_vals = set(), set(), set()
-        hrc_vals, hrc_method_vals = set(), set()
         jhom_vals, jhet_vals = set(), set()
+
+        # Scheme detection is per file: the same physical scheme is numbered
+        # differently before and after the nesspy 1.9.0 renaming, so a folder may
+        # legitimately mix hrc_method=6.0 (legacy) and 5.0 (modern) and still be
+        # one single scheme (S5). We therefore compare the *resolved* schemes.
+        schemes: set[str] = set()
+        legacy_examples: list[tuple] = []
 
         for f in self.files:
             _df = pd.read_csv(f, comment="#", skip_blank_lines=True)
             fres_vals.update(np.round(_df["fres"].unique(), 8))
             dmu_vals.update(np.round(_df["dmu"].unique(), 8))
             k_vals.update(np.round(_df["k"].unique(), 8))
-            hrc_vals.update(_as_bool(v) for v in _df["hrc"].unique())
-            hrc_method_vals.update(np.round(_df["hrc_method"].unique(), 8))
             jhom_vals.add(round(get_epsilon(f), 8))
             jhet_vals.add(round(get_epsilon_het(f), 8))
+
+            hrc_file = {_as_bool(v) for v in _df["hrc"].unique()}
+            if len(hrc_file) != 1:
+                raise ValueError(f"Inconsistent 'hrc' within {f}: {sorted(hrc_file)}")
+            hrc = next(iter(hrc_file))
+
+            # hrc_method only selects a scheme when hrc is active. For
+            # homogeneous driving (hrc inactive) the note says it "can be any
+            # float value", so we don't require consistency in that case.
+            method_file = {
+                float(v) for v in np.round(_df["hrc_method"].unique(), 8)
+            }
+            if hrc and len(method_file) != 1:
+                raise ValueError(
+                    f"Inconsistent 'hrc_method' within {f}: {sorted(method_file)}"
+                )
+            hrc_method = (
+                next(iter(method_file)) if method_file else float("nan")
+            )
+
+            version = get_nesspy_version(f)
+            scheme = scheme_from_hrc(
+                hrc, hrc_method, legacy=version.legacy_schemes
+            )
+            schemes.add(scheme)
+            if version.legacy_schemes:
+                legacy_examples.append((version, hrc, hrc_method, scheme))
 
         for name, vals in [
             ("fres", fres_vals),
             ("dmu", dmu_vals),
             ("k", k_vals),
-            ("hrc", hrc_vals),
             ("jhom", jhom_vals),
             ("jhet", jhet_vals),
         ]:
@@ -416,36 +415,32 @@ class DynamicalOrderDisorder:
                     f"Inconsistent '{name}' across the {len(self.files)} out.csv "
                     f"files: {sorted(vals)}"
                 )
+        if len(schemes) != 1:
+            raise ValueError(
+                f"Inconsistent driving scheme across the {len(self.files)} "
+                f"out.csv files: {sorted(schemes)}"
+            )
 
         fres = float(next(iter(fres_vals)))
         dmu = float(next(iter(dmu_vals)))
         k = float(next(iter(k_vals)))
-        hrc = next(iter(hrc_vals))
         jhom = float(next(iter(jhom_vals)))
         jhet = float(next(iter(jhet_vals)))
+        method = next(iter(schemes))
 
-        # hrc_method only selects a scheme when hrc is active. For homogeneous
-        # driving (hrc inactive) the note says it "can be any float value", so
-        # we don't require it to be consistent across files in that case.
-        if hrc and len(hrc_method_vals) != 1:
-            raise ValueError(
-                f"Inconsistent 'hrc_method' across the {len(self.files)} out.csv "
-                f"files: {sorted(hrc_method_vals)}"
-            )
-        hrc_method = (
-            float(next(iter(hrc_method_vals))) if hrc_method_vals else float("nan")
-        )
-
-        method = scheme_from_hrc(hrc, hrc_method)
+        # Report the legacy remapping once for the whole run directory, in case
+        # __init__ could not (an hrc_method it cannot map is only resolvable
+        # here). Already-reported directories stay quiet.
+        if legacy_examples:
+            report_legacy_run(self.base_path, self.files)
 
         thermos = Thermos(
             jhom=jhom, jhet=jhet, fres=fres, dmu=dmu, k=k, method=method
         )
         logger.info(
             "Detected Thermos from files: jhom=%s, jhet=%s, fres=%s, dmu=%s, "
-            "k=%s, method=%s (%s, hrc=%s, hrc_method=%s)",
-            jhom, jhet, fres, dmu, k, method,
-            scheme_short_label(method), hrc, hrc_method,
+            "k=%s, method=%s (%s)",
+            jhom, jhet, fres, dmu, k, method, scheme_description(method),
         )
         return thermos
 

@@ -20,7 +20,7 @@ default behavior.
      (use the C++/Rust comment syntax `// BUGFIX <DATE> <ISSUE>` in those languages).
 
 3. **Bump the version on every change.** Whenever you change something, increment the
-   `version` field in `pyproject.toml` (currently `0.1.5`) — or the respective
+   `version` field in `pyproject.toml` (currently `0.6.0`) — or the respective
    equivalent for other languages (`Cargo.toml` for Rust, etc.). Use semantic
    versioning: bump the patch for bug fixes, the minor for new features.
 
@@ -96,7 +96,15 @@ functions are available as `npa.<name>`.
   **bootstrap resampling** (`bootstrap=True`, `n_samples` as a *fraction*). It also
   derives `growth_speed = L_y^2 * 2 / <t>` with Gaussian-propagated error, and
   cross-checks per-row params against the header. `get_m_vals()` returns raw `m`
-  arrays; `get_data_point_from_out_file()` does the aggregation.
+  arrays; `get_data_point_from_out_file()` does the aggregation. It also reads the
+  `# nesspy Version ..., Release Date: ...` banner (`get_nesspy_version()`,
+  `is_legacy_output()`) and the `# hrc`/`# hrc_method` entries (`get_hrc()`), which
+  is how legacy files get their driving scheme remapped (`report_legacy_output()`).
+- **`schemes.py`** — the driving-scheme registry: the canonical `S0`-`S6` names,
+  their labels, the legacy-alias table (`canonical_scheme()`), both `hrc_method`
+  catalogues (`scheme_from_hrc(..., legacy=...)`), and the nesspy version gate that
+  decides between them (`is_legacy_scheme_numbering()`). It imports nothing from the
+  package, so both `read_csv.py` and `classes.py` can use it.
 - **`classes.py`** — the top-level analysis API.
   - `Thermos` (frozen dataclass) — thermodynamic params for a system (`jhom`, `jhet`,
     `beta`, `fres`, `k`, `dmu`, `method`); consumed by FLEX theory.
@@ -113,8 +121,9 @@ functions are available as `npa.<name>`.
   `fit_polynomial()` (cubic about an offset `x0`).
 - **`flex.py`** — FLEX / mean-field theory. `calculate_dphi(mu, thermos)` returns the
   density-difference order parameter; branches on `thermos.method`
-  (`NODRIVE` = exact undriven solution, `HOMO`/`SCHEME_*` = driven FLEX solutions,
-  each scheme rescaling `dmu` or `k` differently).
+  (`S0` = exact undriven solution, `S1`-`S6` = driven FLEX solutions, each scheme
+  rescaling `dmu` or `k` differently at the mean-field environment of two
+  neighbours).
 - **`plots.py`** — lattice visualization and config-based observables.
   `plot_lattice_clean()` and `plot_all_configurations()` render `.npy` lattices with a
   fixed 5-value colormap; `calculate_order_parameter(method="MLO2024")` and
@@ -123,10 +132,19 @@ functions are available as `npa.<name>`.
 
 ## Conventions
 
-- "Driving schemes" (`SCHEME_3`, `SCHEME_6`, `SCHEME_7`, `SCHEME_91`, `SCHEME_93`,
-  `HOMO`, `NODRIVE`) recur across both `flex.py` and the data directory names — a
-  scheme identifies how the non-equilibrium drive is applied. Keep the string names
-  consistent when adding new ones.
+- **Driving schemes are named `S0`-`S6`** (`S0` = undriven reference, `S1` =
+  homogeneous driving, `S2`-`S6` = heterogeneous), matching the manuscript and
+  `nesspy` >= 1.9.0. **Use these names in all new code, plots and text.** The
+  pre-rename spellings (`NODRIVE`, `HOMO`, `SCHEME91`, `SCHEME_3`, ... — still
+  present in older data directory names) are accepted as aliases and normalised by
+  `canonical_scheme()`; do not introduce new ones. Registering a new scheme means
+  adding it to `schemes.py` (label + `hrc_method` mapping) *and* to the two physics
+  implementations (`flex.py`, `get_steady_state_probabilities_numerical()`).
+- **`hrc_method` numbers are version-dependent.** nesspy 1.9.0 (2026-08-03) renamed
+  the schemes, so the same number means different things before and after: legacy
+  `6.0` is S5 but modern `6.0` is S6. Always resolve a scheme through
+  `scheme_from_hrc(hrc, hrc_method, legacy=is_legacy_output(file))` — never read
+  `hrc_method` as if it were a scheme name. See `dealing_with_different_schemes.md`.
 - Order-parameter extraction (`MLO2024` method, the `lb_trr`/`ub_trr` column band, the
   {-2..2} lattice encoding) mirrors `nesspy`'s own definitions — changing it changes
   comparability with the simulator's output.

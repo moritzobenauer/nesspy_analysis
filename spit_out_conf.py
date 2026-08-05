@@ -50,7 +50,7 @@ if SPEEDS:
 
 # base_path = Path("/Volumes/2025/research_nov_2025_data/ML_F0_D1_K1_SCHEME_6")
 # analysis_2 = npa.DynamicalOrderDisorder("mu1", base_path)
-# thermos_for_inert = npa.Thermos(dmu=1.0, method="SCHEME6")
+# thermos_for_inert = npa.Thermos(dmu=1.0, method="S5")
 # data = analysis_2.get_data()
 # data = data.sort_values(by=["mu"])
 # data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_inert)
@@ -70,7 +70,7 @@ if SPEEDS:
 
 base_path = Path("/Volumes/2025/research_nov_2025_data/ML_F0_D05_K1_SCHEME6")
 analysis_2 = npa.DynamicalOrderDisorder("mu05", base_path)
-thermos_for_inert = npa.Thermos(dmu=0.5, method="SCHEME6", fres=0.0, k=1.0)
+thermos_for_inert = npa.Thermos(dmu=0.5, method="S5", fres=0.0, k=1.0)
 data = analysis_2.get_data()
 data = data.sort_values(by=["mu"])
 data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_inert)
@@ -91,7 +91,7 @@ if SPEEDS:
 
 base_path = Path("/Volumes/2025/research_nov_2025_data/ML_F0_D1_K1_SCHEME_6")
 analysis_2 = npa.DynamicalOrderDisorder("mu1", base_path)
-thermos_for_inert = npa.Thermos(dmu=1.0, method="SCHEME6", fres=0.0, k=1.0)
+thermos_for_inert = npa.Thermos(dmu=1.0, method="S5", fres=0.0, k=1.0)
 data = analysis_2.get_data()
 data = data.sort_values(by=["mu"])
 data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_inert)
@@ -113,7 +113,7 @@ if SPEEDS:
 
 base_path = Path("/Volumes/2025/research_nov_2025_data/ML_F0_D2_K1_SCHEME_6")
 analysis_2 = npa.DynamicalOrderDisorder("mu2", base_path)
-thermos_for_inert = npa.Thermos(dmu=2.0, method="SCHEME6", fres=0.0, k=1.0)
+thermos_for_inert = npa.Thermos(dmu=2.0, method="S5", fres=0.0, k=1.0)
 data = analysis_2.get_data()
 data = data.sort_values(by=["mu"])
 data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_inert)
@@ -139,7 +139,7 @@ if SPEEDS:
 
 base_path = Path("/Volumes/2025/research_nov_2025_data/ML_F0_D4_K1_SCHEME_6")
 analysis_2 = npa.DynamicalOrderDisorder("mu4", base_path)
-thermos_for_inert = npa.Thermos(dmu=4.0, method="SCHEME6", fres=0.0, k=1.0)
+thermos_for_inert = npa.Thermos(dmu=4.0, method="S5", fres=0.0, k=1.0)
 data = analysis_2.get_data()
 data = data.sort_values(by=["mu"])
 data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_inert)
@@ -159,7 +159,7 @@ if SPEEDS:
 
 base_path = Path("/Volumes/2025/research_nov_2025_data/ML_F0_D5_K1_SCHEME_6_BJ_RSW40")
 analysis_2 = npa.DynamicalOrderDisorder("mu5", base_path)
-thermos_for_inert = npa.Thermos(dmu=5.0, method="SCHEME6", fres=0.0, k=1.0)
+thermos_for_inert = npa.Thermos(dmu=5.0, method="S5", fres=0.0, k=1.0)
 data = analysis_2.get_data()
 data = data.sort_values(by=["mu"])
 data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_inert)
@@ -179,7 +179,7 @@ if SPEEDS:
 
 base_path = Path("/Volumes/2025/research_nov_2025_data/ML_F0_D6_K1_SCHEME_6_BJ_RSW40")
 analysis_2 = npa.DynamicalOrderDisorder("mu6", base_path)
-thermos_for_inert = npa.Thermos(dmu=6.0, method="SCHEME6", fres=0.0, k=1.0)
+thermos_for_inert = npa.Thermos(dmu=6.0, method="S5", fres=0.0, k=1.0)
 data = analysis_2.get_data()
 data = data.sort_values(by=["mu"])
 data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_inert)
@@ -199,7 +199,7 @@ if SPEEDS:
 
 base_path = Path("/Volumes/2025/research_nov_2025_data/ML_F0_D8_K1_SCHEME_6_BJ_RSW40")
 analysis_2 = npa.DynamicalOrderDisorder("mu8", base_path)
-thermos_for_inert = npa.Thermos(dmu=8.0, method="SCHEME6", fres=0.0, k=1.0)
+thermos_for_inert = npa.Thermos(dmu=8.0, method="S5", fres=0.0, k=1.0)
 data = analysis_2.get_data()
 data = data.sort_values(by=["mu"])
 data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_inert)
@@ -224,7 +224,7 @@ if SPEEDS:
 
 base_path = Path("/Volumes/2025/research_nov_2025_data/ML_F0_D1_K1_SCHEME_7_BJ")
 analysis_2 = npa.DynamicalOrderDisorder("mu17", base_path)
-thermos_for_inert = npa.Thermos(dmu=1.0, method="SCHEME7", fres=0.0, k=1.0)
+thermos_for_inert = npa.Thermos(dmu=1.0, method="S6", fres=0.0, k=1.0)
 data = analysis_2.get_data()
 data = data.sort_values(by=["mu"])
 data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_inert)
@@ -247,7 +247,7 @@ if SPEEDS:
 
 base_path = Path("/Volumes/2025/research_nov_2025_data/ML_F0_D2_K1_SCHEME_7")
 analysis_2 = npa.DynamicalOrderDisorder("mu27", base_path)
-thermos_for_inert = npa.Thermos(dmu=2.0, method="SCHEME7", fres=0.0, k=1.0)
+thermos_for_inert = npa.Thermos(dmu=2.0, method="S6", fres=0.0, k=1.0)
 data = analysis_2.get_data()
 data = data.sort_values(by=["mu"])
 data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_inert)
@@ -271,7 +271,7 @@ if SPEEDS:
 
 base_path = Path("/Volumes/2025/research_nov_2025_data/ML_F0_D4_K1_SCHEME_7_BJ")
 analysis_2 = npa.DynamicalOrderDisorder("mu47", base_path)
-thermos_for_inert = npa.Thermos(dmu=4.0, method="SCHEME7", fres=0.0, k=1.0)
+thermos_for_inert = npa.Thermos(dmu=4.0, method="S6", fres=0.0, k=1.0)
 data = analysis_2.get_data()
 data = data.sort_values(by=["mu"])
 data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_inert)
@@ -294,7 +294,7 @@ if SPEEDS:
 
 base_path = Path("/Volumes/2025/research_nov_2025_data/ML_F0_D5_K1_SCHEME_7_BJ_RSW40")
 analysis_2 = npa.DynamicalOrderDisorder("mu57", base_path)
-thermos_for_inert = npa.Thermos(dmu=5.0, method="SCHEME7", fres=0.0, k=1.0)
+thermos_for_inert = npa.Thermos(dmu=5.0, method="S6", fres=0.0, k=1.0)
 data = analysis_2.get_data()
 data = data.sort_values(by=["mu"])
 data["dphi"] = npa.calculate_dphi(data["mu"], thermos_for_inert)

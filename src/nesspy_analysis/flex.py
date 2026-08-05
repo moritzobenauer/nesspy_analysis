@@ -1,5 +1,6 @@
 import numpy as np
 from .classes import Thermos
+from .schemes import canonical_scheme
 
 
 def calculate_dphi(
@@ -11,7 +12,9 @@ def calculate_dphi(
     fres = thermos.fres
     k = thermos.k
     beta = thermos.beta
-    drivetype = thermos.method  
+    # Canonical scheme name (S0-S6); Thermos already normalises this, but accept
+    # a hand-built object carrying a legacy spelling too.
+    drivetype = canonical_scheme(thermos.method)
 
     def exact_phi(
         mu: np.array, jhom, jhet, dmu, fres, k, beta: float = 1.0
@@ -37,24 +40,29 @@ def calculate_dphi(
         M = np.exp(dmu)
         return (mu-2*jhom)+np.log((1+k+k*F)/(1+k+2*z*F+k*F*M+2*F**2*M*k*z+2*F*M*k*z))
 
-    if drivetype == "NODRIVE":
+    # The FLEX branches evaluate each scheme's perturbation at the mean-field
+    # environment of two nearest neighbours, which is why the rescalings below
+    # are plain numbers rather than functions of (n_red, n_blue).
+    if drivetype == "S0":
+        # Undriven / equilibrium reference: exact solution, no drive.
         return exact_phi(mu, jhom, jhet, dmu, fres, k, beta)
-    elif drivetype == "HOMO":
+    elif drivetype == "S1":
+        # Homogeneous driving: k and dmu used as read.
         return flex_phi(mu, jhom, jhet, dmu, fres, k, beta)
-    elif drivetype == "SCHEME_3" or drivetype == "SCHEME3":
+    elif drivetype in ("S2", "S3"):
+        # k-family schemes: k -> k * exp(-2) at two neighbours.
+        k = k * np.exp(-2.0)
+        return flex_phi(mu, jhom, jhet, dmu, fres, k, beta)
+    elif drivetype in ("S4", "S5"):
+        # dmu-family schemes: dmu -> dmu * exp(-2) at two neighbours.
         dmu = dmu * np.exp(-2.0)
         return flex_phi(mu, jhom, jhet, dmu, fres, k, beta)
-    elif drivetype == "SCHEME_6" or drivetype == "SCHEME6":
-        dmu = dmu * np.exp(-2.0)
-        return flex_phi(mu, jhom, jhet, dmu, fres, k, beta)
-    elif drivetype == "SCHEME_7" or drivetype == "SCHEME7":
+    elif drivetype == "S6":
+        # S6 evaluated with the *linear* form dmu_0 * (1 - n'/4) at n' = 2, i.e.
+        # dmu / 2. That is nesspy's pre-2026-08-04 S6 (legacy hrc_method 7.0);
+        # nesspy's current S6 is exponential in n', as used by
+        # classes.get_steady_state_probabilities_numerical().
         dmu = dmu / 2.0
-        return flex_phi(mu, jhom, jhet, dmu, fres, k, beta)
-    elif drivetype == "SCHEME_91" or drivetype == "SCHEME91":
-        k = k * np.exp(-2.0)
-        return flex_phi(mu, jhom, jhet, dmu, fres, k, beta)
-    elif drivetype == "SCHEME_93" or drivetype == "SCHEME93":
-        k = k * np.exp(-2.0)
         return flex_phi(mu, jhom, jhet, dmu, fres, k, beta)
     else:
         raise ValueError(f"Unknown driving scheme: {drivetype}")
