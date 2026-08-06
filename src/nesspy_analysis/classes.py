@@ -420,8 +420,28 @@ class DynamicalOrderDisorder:
         drive_reverse_vals: set[float] = set()
         reverse_schemes: set[str] = set()
 
+        # Count the files that actually contributed, so a run directory in which
+        # *every* out.csv is header-only fails with a clear message instead of an
+        # opaque "Inconsistent 'fres' ... : []" further down.
+        contributing = 0
+
         for f in self.files:
             _df = pd.read_csv(f, comment="#", skip_blank_lines=True)
+
+            # BUGFIX 2026-08-06 A header-only out.csv (a mu whose runs wrote no
+            # measurement rows, e.g. because they hit max_time before finishing)
+            # used to reach the `hrc` consistency check with an empty column and
+            # raise "Inconsistent 'hrc' within <file>: []". get_data() already
+            # skips such a mu and keeps going, so parameter detection has to skip
+            # it the same way -- otherwise a single unfinished mu makes the whole
+            # run directory unanalyzable.
+            if _df.empty:
+                logger.warning(
+                    "Skipping %s for parameter detection: no measurement rows.", f
+                )
+                continue
+            contributing += 1
+
             fres_vals.update(np.round(_df["fres"].unique(), 8))
             dmu_vals.update(np.round(_df["dmu"].unique(), 8))
             k_vals.update(np.round(_df["k"].unique(), 8))
@@ -461,6 +481,15 @@ class DynamicalOrderDisorder:
             if version.legacy_schemes:
                 legacy_examples.append((version, hrc, hrc_method, scheme))
 
+        if contributing == 0:
+            raise ValueError(
+                f"None of the {len(self.files)} out.csv files under "
+                f"{self.base_path} contain measurement rows, so no simulation "
+                f"parameters could be detected."
+            )
+
+        # The consistency checks below quote `contributing`, not len(self.files):
+        # header-only files were skipped above and never contributed a value.
         for name, vals in [
             ("fres", fres_vals),
             ("dmu", dmu_vals),
@@ -471,18 +500,18 @@ class DynamicalOrderDisorder:
         ]:
             if len(vals) != 1:
                 raise ValueError(
-                    f"Inconsistent '{name}' across the {len(self.files)} out.csv "
-                    f"files: {sorted(vals)}"
+                    f"Inconsistent '{name}' across the {contributing} out.csv "
+                    f"files with data: {sorted(vals)}"
                 )
         if len(schemes) != 1:
             raise ValueError(
-                f"Inconsistent driving scheme across the {len(self.files)} "
-                f"out.csv files: {sorted(schemes)}"
+                f"Inconsistent driving scheme across the {contributing} "
+                f"out.csv files with data: {sorted(schemes)}"
             )
         if len(reverse_schemes) != 1:
             raise ValueError(
-                f"Inconsistent inverse-drive scheme across the {len(self.files)} "
-                f"out.csv files: {sorted(reverse_schemes)}"
+                f"Inconsistent inverse-drive scheme across the {contributing} "
+                f"out.csv files with data: {sorted(reverse_schemes)}"
             )
 
         fres = float(next(iter(fres_vals)))
