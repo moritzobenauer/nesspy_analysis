@@ -1,3 +1,4 @@
+import argparse
 import logging
 import numpy as np
 import pandas as pd
@@ -83,7 +84,61 @@ try:
 except ImportError:
     logger.warning("plot_defaults not found; using matplotlib defaults.")
 
-data_path = Path("/Volumes/2025/RETHINKING_SUPERSAT/X_320_Y_80_1.0_D0.0_JHOM_-3.9_F0.0_K1.0")
+# BUGFIX 2026-08-07 a module-level `data_path = Path("/Volumes/2025/...")` used to
+# live here and was the only thing the __main__ block referred to. It pointed at a
+# single hard-coded run directory, so the file could not be used as a script by
+# anyone else. It is replaced by the argparse CLI at the bottom of this module.
+
+
+def plot_lattice_overviews(run_dir: Path) -> None:
+    """Render overview grids of the final lattices for a single run directory.
+
+    Produces two kinds of figure:
+
+    - ``lattice_overview.png`` inside every mu subfolder, tiling that folder's
+      ``lattice_final.npy`` file(s) (there may be several replicate seeds).
+    - ``lattice_overview.png`` inside ``run_dir`` itself, tiling every final
+      lattice found anywhere under the run.
+
+    Failures for an individual mu folder are logged and skipped so one bad
+    folder doesn't abort the whole run.
+
+    This is the expensive ("--vis") half of the per-run suite: it opens every
+    ``lattice_final.npy`` under the run, so it roughly doubles the analysis time.
+    It lives here, next to :func:`analyze_directory`, so both the single-run CLI
+    below and ``parent_sweeper.py`` can call it without a circular import.
+    """
+    # per-mu-folder grids: each immediate subdirectory that holds one or more
+    # lattice_final.npy (possibly nested under replicate-seed subfolders).
+    for mu_folder in sorted(f for f in run_dir.iterdir() if f.is_dir()):
+        try:
+            files = sorted(npa.find_all_final_configs(mu_folder))
+        except ValueError:
+            # no lattice_final.npy under this subfolder; not a mu run folder.
+            continue
+        try:
+            fig, _ = npa.plot_all_configurations(files)
+            fig.savefig(mu_folder / "lattice_overview.png", dpi=200)
+            plt.close(fig)
+            logger.info("Saved %d-lattice overview to %s", len(files), mu_folder)
+        except Exception as e:
+            logger.warning("Could not plot lattices for %s: %s", mu_folder, e)
+
+    # combined grid over every final lattice in the run
+    try:
+        all_files = sorted(npa.find_all_final_configs(run_dir))
+    except ValueError:
+        logger.warning("No lattice_final.npy files found under %s", run_dir)
+        return
+    try:
+        fig, _ = npa.plot_all_configurations(all_files)
+        fig.savefig(run_dir / "lattice_overview.png", dpi=200)
+        plt.close(fig)
+        logger.info(
+            "Saved combined %d-lattice overview to %s", len(all_files), run_dir
+        )
+    except Exception as e:
+        logger.warning("Could not plot combined lattice overview for %s: %s", run_dir, e)
 
 
 def _speed_from_cache(data_path: Path, data: pd.DataFrame) -> tuple[float, float]:
@@ -328,7 +383,90 @@ def analyze_directory(
 
 
 if __name__ == "__main__":
+    # BUGFIX 2026-08-07 this block used to call analyze_directory(data_path) on a
+    # module-level constant that had been removed from the flow, so running the
+    # file as a script raised NameError. It is now a proper single-run CLI.
+    #
+    # Everything sits behind the __main__ guard because analyze_directory ->
+    # get_wq() spawns a multiprocessing Pool (same reason as parent_sweeper.py).
+
+    argparser = argparse.ArgumentParser(
+        description="Run the order-disorder analysis suite on ONE run directory "
+        "(the folder that contains the per-mu subfolders). Use parent_sweeper.py "
+        "to sweep over a whole parent directory instead."
+    )
+    argparser.add_argument(
+        "-i",
+        "--run_dir",
+        type=str,
+        required=True,
+        help="Path to a single run directory (the parent of the mu subfolders).",
+    )
+    argparser.add_argument(
+        "-v", "--verbose", action="store_true", help="Print verbose output."
+    )
+    argparser.add_argument(
+        "-m",
+        "--min_size",
+        type=int,
+        default=8,
+        help="Minimum blue-cluster cardinality kept for the r(log S) observable "
+        "(default: 8; use 5 for the 'larger than four' rule).",
+    )
+    argparser.add_argument(
+        "--speed",
+        action="store_true",
+        help="Also report the interface growth speed at the critical "
+        "supersaturation.",
+    )
+    argparser.add_argument(
+        "--wq",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run the expensive w(q) lattice scan (default: on). Use --no-wq to "
+        "reuse cached w(q) results instead.",
+    )
+    # The two halves of the suite are independent switches so a caller (the
+    # database/analyze_new.sh driver) can ask for exactly the part that is
+    # missing from a run directory: the analysis, the lattice plots, or both.
+    argparser.add_argument(
+        "--analysis",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run the order-disorder analysis (default: on). --no-analysis makes "
+        "this a lattice-plot-only invocation.",
+    )
+    argparser.add_argument(
+        "--vis",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Render the lattice-overview grids (slow; off by default).",
+    )
+
+    args = argparser.parse_args()
+
+    logging.getLogger().setLevel(logging.INFO if args.verbose else logging.WARNING)
+    logging.getLogger("matplotlib").setLevel(logging.WARNING)
 
     npa.print_verbose_startup()
 
-    analyze_directory(data_path)
+    run_dir = Path(args.run_dir)
+    if not run_dir.is_dir():
+        raise SystemExit(f"Run directory {run_dir} does not exist.")
+    if not args.analysis and not args.vis:
+        raise SystemExit("Nothing to do: --no-analysis was given without --vis.")
+
+    if args.analysis:
+        summary = analyze_directory(
+            run_dir,
+            min_size=args.min_size,
+            run_wq=args.wq,
+            compute_speed=args.speed,
+        )
+        print("\n=== Analysis summary ===")
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+
+    if args.vis:
+        plot_lattice_overviews(run_dir)
+        print(f"Saved lattice overviews under {run_dir}")

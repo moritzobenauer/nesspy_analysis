@@ -13,6 +13,10 @@ from analyzing_order_disorder import (
     ANALYSIS_CSV,
     analyze_directory,
     growth_speed_at_critical,
+    # plot_lattice_overviews now lives next to analyze_directory so the single-run
+    # CLI in analyzing_order_disorder.py can call it too (it used to be defined
+    # here, which would have made that a circular import).
+    plot_lattice_overviews,
     read_critical_supersat,
 )
 
@@ -57,52 +61,6 @@ def summarize_skipped(run_dir: Path, compute_speed: bool = False) -> dict:
         summary["growth_speed_at_critical"] = gs
         summary["dgrowth_speed_at_critical"] = dgs
     return summary
-
-
-def plot_lattice_overviews(run_dir: Path) -> None:
-    """Render overview grids of the final lattices for a single run directory.
-
-    Produces two kinds of figure:
-
-    - ``lattice_overview.png`` inside every mu subfolder, tiling that folder's
-      ``lattice_final.npy`` file(s) (there may be several replicate seeds).
-    - ``lattice_overview.png`` inside ``run_dir`` itself, tiling every final
-      lattice found anywhere under the run.
-
-    Failures for an individual mu folder are logged and skipped so one bad
-    folder doesn't abort the whole run.
-    """
-    # per-mu-folder grids: each immediate subdirectory that holds one or more
-    # lattice_final.npy (possibly nested under replicate-seed subfolders).
-    for mu_folder in sorted(f for f in run_dir.iterdir() if f.is_dir()):
-        try:
-            files = sorted(npa.find_all_final_configs(mu_folder))
-        except ValueError:
-            # no lattice_final.npy under this subfolder; not a mu run folder.
-            continue
-        try:
-            fig, _ = npa.plot_all_configurations(files)
-            fig.savefig(mu_folder / "lattice_overview.png", dpi=200)
-            plt.close(fig)
-            logger.info("Saved %d-lattice overview to %s", len(files), mu_folder)
-        except Exception as e:
-            logger.warning("Could not plot lattices for %s: %s", mu_folder, e)
-
-    # combined grid over every final lattice in the run
-    try:
-        all_files = sorted(npa.find_all_final_configs(run_dir))
-    except ValueError:
-        logger.warning("No lattice_final.npy files found under %s", run_dir)
-        return
-    try:
-        fig, _ = npa.plot_all_configurations(all_files)
-        fig.savefig(run_dir / "lattice_overview.png", dpi=200)
-        plt.close(fig)
-        logger.info(
-            "Saved combined %d-lattice overview to %s", len(all_files), run_dir
-        )
-    except Exception as e:
-        logger.warning("Could not plot combined lattice overview for %s: %s", run_dir, e)
 
 
 if __name__ == "__main__":

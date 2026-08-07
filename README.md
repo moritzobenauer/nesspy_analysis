@@ -53,7 +53,112 @@ supersaturation bar chart. It accepts the following arguments:
 | `--vis` | flag | off | Render the (slow) lattice-overview grids for each run. Off by default so a sweep skips the tiling of every `lattice_final.npy` unless requested. |
 | `-v`, `--verbose` | flag | off | Print verbose (`INFO`-level) output during analysis. |
 
+## Analyzing a single run (`2026/analyzing_order_disorder.py`)
+
+The same pipeline for one run directory (the folder holding the per-mu subfolders):
+
+```bash
+uv run python 2026/analyzing_order_disorder.py -i <run_dir> --vis
+```
+
+Besides `-m/--min_size`, `--speed`, `--wq/--no-wq` and `-v` (as above) it takes two
+independent switches, so a caller can ask for exactly the part of the suite that is
+missing from a run:
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `-i`, `--run_dir` | required | A single run directory. |
+| `--analysis` / `--no-analysis` | on | Run the order-disorder analysis. `--no-analysis --vis` makes this a lattice-plot-only invocation. |
+| `--vis` / `--no-vis` | off | Render the (slow) lattice-overview grids. |
+
+## The research-data pipeline (`database/`)
+
+Turns "the jobs finished on della" into "analyzed data on disk". **Set `DELLA_DIR` and
+`LOCAL_DIR` in `database/config.sh` before the first run**, then:
+
+```bash
+bash database/run_pipeline.sh        # sync -> catalog -> analyze
+bash database/run_pipeline.sh -f     # same, but redo everything from scratch
+```
+
+The three stages are also runnable on their own (`sync_from_della.sh`, `catalog.sh`,
+`analyze_new.sh`). Each stage only does the work that is actually outstanding, so
+re-running the pipeline after a partial sync is cheap and safe.
+
+Cataloging writes three kinds of file into each run directory:
+
+| File | Written | Contents |
+|------|---------|----------|
+| `run_catalog.md` | always | Timestamp, source path on della, header parameters, the resolved driving scheme, and a per-mu table of trajectory counts / replicate folders / `lattice_final.npy` counts. Ends with an *advisory* comparison of the folder name against the header — folder names use several encodings and some drop the decimal point, so the header is always the authority. |
+| `<version>.version` | always | Empty marker naming the nesspy version that produced the run (one per distinct version found). |
+| `flagged_warning.md` | only on problems | A mu folder with no `out.csv` or no data rows, a trajectory count below the run's modal value (what an out-of-memory kill looks like on disk), replicates missing `lattice_final.npy`, parameters disagreeing between mu folders, several nesspy versions in one run, or errors found in a Slurm log sitting next to the data. |
+
+Run directories are discovered as the grandparent of an `out.csv`, so trees of
+different depth are handled by the same code. Nothing is moved or renamed — the local
+directory stays a verbatim mirror of della, and the sync is strictly additive.
+
 ## Changelog
+
+### 0.10.0
+
+- **New: the research-data pipeline in `database/`.** Four short bash scripts turn
+  "results finished on della" into "analyzed data on disk" in one command
+  (`database/run_pipeline.sh`):
+  - `sync_from_della.sh` — an `rsync` dry run decides whether there is anything new
+    before a single byte is transferred, then copies it down. Strictly additive
+    (never `--delete`), so the report files written below survive re-syncs.
+  - `catalog.sh` — writes a `run_catalog.md` into every run directory recording the
+    header parameters, the resolved driving scheme, and **how many trajectories each
+    chemical potential actually has**; drops a `<version>.version` marker naming the
+    nesspy version that produced the run; and writes a `flagged_warning.md` only when
+    something is wrong (missing/empty `out.csv`, trajectory counts below the run's
+    modal value, replicates missing `lattice_final.npy`, parameters disagreeing
+    between mu folders, mixed nesspy versions, or errors in a Slurm log if one is
+    present next to the data).
+  - `analyze_new.sh` — runs the full order-disorder suite, including the slow lattice
+    overviews, on every run that needs it and only once: a run is (re)analyzed when
+    its `order_disorder_analysis.csv` is missing or older than its newest `out.csv`,
+    and the lattice plots are rendered when `lattice_overview.png` is missing.
+  - `config.sh` holds `DELLA_DIR` / `LOCAL_DIR` so retargeting the pipeline never
+    means editing a script. **Both need filling in before first use.**
+
+  Runs are discovered as the *grandparent of an `out.csv`*, which is what makes the
+  same scripts work for both `RETHINKING_SUPERSAT/<run>/<mu>/` and the deeper
+  `COMPARING_SCHEMES/SCHEME6/D05/<mu>/`. Nothing is ever moved or renamed: the local
+  tree stays a verbatim mirror of della.
+
+- **New: `database/resolve_scheme.py`.** A thin wrapper that resolves
+  `(hrc, hrc_method, nesspy version)` to a canonical `S0`-`S6` name through
+  `schemes.py`. It exists so the version-dependent `hrc_method` mapping is never
+  re-implemented in shell — the same number means different schemes before and after
+  nesspy 1.9.0. It imports only `nesspy_analysis.schemes` (no pandas), so it is cheap
+  enough to call once per run directory.
+
+- **New: a single-run CLI for `2026/analyzing_order_disorder.py`.** The analysis suite
+  could previously only be driven over a whole parent directory
+  (`parent_sweeper.py`). It now takes `-i/--run_dir` plus independent
+  `--analysis/--no-analysis` and `--vis/--no-vis` switches, so a caller can request
+  exactly the half of the suite a run is missing.
+
+- **Bug fix.** `2026/analyzing_order_disorder.py`'s `__main__` block called
+  `analyze_directory(data_path)` on a module-level constant pointing at one hard-coded
+  run directory, so running the file as a script raised `NameError`. Replaced by the
+  CLI above.
+
+- **Refactor.** `plot_lattice_overviews()` moved from `2026/parent_sweeper.py` into
+  `2026/analyzing_order_disorder.py`, next to `analyze_directory()`, so the new
+  single-run CLI can call it without a circular import. `parent_sweeper.py` now
+  imports it from there; its behaviour is unchanged.
+
+### 0.9.1
+
+- **Documentation.** Recorded the curated shell one-liners for inspecting a run
+  directory in `CLAUDE.md` (new "Quick shell inspection of a run directory" section
+  under *Data model*): reading the nesspy version out of an `out.csv` banner,
+  counting the independent trajectories in it, and checking the Slurm logs
+  (`slurm_error.err` / `slurm_report.out`) for failures such as `Out Of Memory`.
+  These replace the more roundabout pipelines previously used for the same
+  questions. No code changes.
 
 ### 0.9.0
 
