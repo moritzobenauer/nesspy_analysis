@@ -85,6 +85,21 @@ The three stages are also runnable on their own (`sync_from_della.sh`, `catalog.
 `analyze_new.sh`). Each stage only does the work that is actually outstanding, so
 re-running the pipeline after a partial sync is cheap and safe.
 
+To keep collecting while jobs are still finishing on della, leave the watcher running
+in the background — it repeats the cycle every `PIPELINE_INTERVAL_MIN` minutes:
+
+```bash
+nohup bash database/watch_pipeline.sh > /dev/null 2>&1 &   # start
+tail -f "$LOCAL_DIR/_logs/watch.log"                       # follow
+kill "$(cat "$LOCAL_DIR/_logs/watch.pid")"                 # stop
+```
+
+The interval is measured from the end of each cycle, so cycles never overlap however
+long the analysis takes, and a failed cycle is logged rather than fatal. A lock
+directory allows only one watcher per `LOCAL_DIR`; if a watcher is ever killed with
+`kill -9` the lock survives, and `_logs/watch.lock` has to be removed by hand before a
+new one will start.
+
 Cataloging writes three kinds of file into each run directory:
 
 | File | Written | Contents |
@@ -98,6 +113,25 @@ different depth are handled by the same code. Nothing is moved or renamed — th
 directory stays a verbatim mirror of della, and the sync is strictly additive.
 
 ## Changelog
+
+### 0.11.0
+
+- **New: `database/watch_pipeline.sh`.** Runs the whole pipeline every
+  `PIPELINE_INTERVAL_MIN` minutes (new setting in `config.sh`, default 30) so data can
+  be collected and analyzed while jobs are still finishing on della. Start it with
+  `nohup bash database/watch_pipeline.sh > /dev/null 2>&1 &`, follow it with
+  `tail -f <LOCAL_DIR>/_logs/watch.log`, stop it with
+  `kill "$(cat <LOCAL_DIR>/_logs/watch.pid)"`.
+
+  Three details that matter for something left running unattended:
+  - The interval is measured from when a cycle *finishes*, so cycles never overlap
+    however long the analysis takes.
+  - A failed cycle (della unreachable, one run that will not fit) is logged and the
+    watcher carries on; it deliberately does not use `set -e`.
+  - An atomic lock directory allows only one watcher per `LOCAL_DIR`, so two
+    analyses can never write into the same run directory at once. The sleep runs as
+    an interruptible background job, so `kill` stops the watcher immediately and
+    releases the lock instead of leaving it behind until the interval elapses.
 
 ### 0.10.0
 

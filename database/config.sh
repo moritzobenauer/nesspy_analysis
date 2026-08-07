@@ -23,6 +23,11 @@ LOCAL_DIR=""
 # SSH alias for the cluster (configured in ~/.ssh/config).
 DELLA_HOST="della"
 
+# How often watch_pipeline.sh runs a full sync/catalog/analyze cycle, in minutes.
+# The clock starts when a cycle *finishes*, so cycles never overlap however long
+# the analysis takes.
+PIPELINE_INTERVAL_MIN=30
+
 # Repo root, derived from this file's location — used to locate the analysis
 # scripts in 2026/ and the helper in database/.
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
