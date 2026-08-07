@@ -106,13 +106,113 @@ Cataloging writes three kinds of file into each run directory:
 |------|---------|----------|
 | `run_catalog.md` | always | Timestamp, source path on della, header parameters, the resolved driving scheme, and a per-mu table of trajectory counts / replicate folders / `lattice_final.npy` counts. Ends with an *advisory* comparison of the folder name against the header — folder names use several encodings and some drop the decimal point, so the header is always the authority. |
 | `<version>.version` | always | Empty marker naming the nesspy version that produced the run (one per distinct version found). |
+| `analysis_failed.md` | only on a failed analysis | Written by `analyze_new.sh`, not the catalog. Timestamp, log path and the tail of the traceback for a run whose analysis raised. While it exists the run is skipped, so a permanently broken run is not re-analyzed every cycle; it is removed automatically on the next successful analysis, and `-f` ignores it. |
 | `flagged_warning.md` | only on problems | A mu folder with no `out.csv` or no data rows, a trajectory count below the run's modal value (what an out-of-memory kill looks like on disk), replicates missing `lattice_final.npy`, parameters disagreeing between mu folders, several nesspy versions in one run, or errors found in a Slurm log sitting next to the data. |
 
 Run directories are discovered as the grandparent of an `out.csv`, so trees of
 different depth are handled by the same code. Nothing is moved or renamed — the local
 directory stays a verbatim mirror of della, and the sync is strictly additive.
 
+## Inspecting a run directory from the shell
+
+For simple questions about an `out.csv` — which nesspy version wrote it, how many
+trajectories it holds — these one-liners answer faster than starting Python. They are
+also what `database/catalog.sh` uses internally, so the numbers in `run_catalog.md`
+and the numbers you get here always agree.
+
+```bash
+# nesspy version that produced this out.csv — prints just the version string
+grep -oE 'nesspy Version [^,]+' out.csv | awk '{print $3}'
+
+# number of independent trajectories: data rows, skipping the '#' header block
+# and the CSV column-name line
+awk '!/^[[:space:]]*#/ && NF {if (header) rows++; else header=1} END {print rows+0}' out.csv
+```
+
+### Reading Slurm logs
+
+`tail {SLURM_ID}.err` and `tail {SLURM_ID}.out` give a quick verdict on whether a job
+finished cleanly. A line such as
+
+```
+srun: error: della-h17n1: task 0: Out Of Memory
+```
+
+in `slurm_report.out` means the process was killed for lack of memory. That is not
+fatal for the analysis — the rows already written are still usable — but it always
+deserves flagging, because the trajectory count will be short. This is one of the
+conditions `flagged_warning.md` reports automatically.
+
+Which `SLURM_ID` belongs to which dataset is not obvious from the filename. The
+directory it worked on is printed at the *top* of the error file, so read both ends:
+
+```bash
+head -n 20 {SLURM_ID}.err   # names the subdirectory this job ran on
+tail {SLURM_ID}.err         # shows how it ended
+```
+
+Pairing `head` with `tail` this way is what lets you attribute an error to a specific
+dataset.
+
 ## Changelog
+
+### 0.12.0
+
+- **`run_pipeline.sh` gained a fourth stage: the results spreadsheet fills itself in.**
+  After the analysis stage, the pipeline calls `claude -p` (model `claude-sonnet-5`)
+  with the instruction to read `database/results.xlsx` and transcribe the newly
+  analyzed data into it, leaving the `MLO_CHECK` column untouched. Claude is invoked
+  from the repository root so that the `@database/results.xlsx` reference in the
+  prompt resolves.
+
+  Stage 3's exit status is now captured rather than allowed to abort the script: a
+  single run that newly fails to analyze should not prevent the runs that *did*
+  succeed from being recorded in the spreadsheet. The status is re-raised as the
+  pipeline's own exit code once stage 4 is done, so the previous "new failures set a
+  non-zero exit status" contract still holds.
+
+### 0.11.3
+
+- **A run whose analysis fails is no longer retried on every cycle.** A failed run
+  writes neither `order_disorder_analysis.csv` nor `lattice_overview.png`, so
+  `analyze_new.sh` considered it outstanding forever and the watcher re-ran the whole
+  thing — slow lattice rendering included — every cycle, only to fail again. Some
+  failures are permanent, such as a susceptibility fit that will not converge for the
+  mu range sampled.
+
+  A failing run now drops an `analysis_failed.md` marker into its run directory and is
+  skipped until a new `out.csv` arrives for it. The marker records the timestamp, the
+  full log path, the last 20 lines of the traceback, and the two commands to retry by
+  hand. It is deleted automatically as soon as the run analyses successfully, and `-f`
+  ignores it. The end-of-stage summary now reports known-failing runs separately from
+  new failures, and only new failures set a non-zero exit status.
+
+### 0.11.2
+
+- **New README section: "Inspecting a run directory from the shell."** Folds in the
+  tips from `useful_bash_commands.md` — the `nesspy Version` and trajectory-count
+  one-liners, how to read an out-of-memory kill out of `slurm_report.out`, and the
+  `head -n 20 {SLURM_ID}.err` / `tail {SLURM_ID}.err` pairing that attributes a Slurm
+  error to the dataset it came from (the job's directory is printed at the top of the
+  error file, the failure at the bottom).
+
+### 0.11.1
+
+- **Bugfix: the sync no longer treats vanishing source files as a fatal error.** The
+  pipeline is designed to run *while* jobs are still writing on della, so directories
+  appear and disappear under `DELLA_DIR` while rsync scans it. rsync reports those and
+  exits non-zero, and `sync_from_della.sh` took that as a failure — which aborted every
+  cycle of the watcher before the catalog and analysis stages ever ran, even though the
+  listing and transfer were otherwise complete.
+
+  Both rsync invocations now go through a `run_rsync` helper that forgives exactly that
+  condition: GNU rsync's dedicated exit code 24 ("partial transfer due to vanished
+  source files"), and — since macOS ships openrsync, which has no such code — a
+  non-zero exit whose only complaints are `directory has vanished` lines. Anything else
+  still fails loudly. Whatever moved mid-sync is simply picked up by the next cycle.
+
+- The real transfer's `--stats` summary is now written to the sync log and echoed back
+  as a short block, rather than streamed through `tee`.
 
 ### 0.11.0
 
