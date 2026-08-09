@@ -20,7 +20,7 @@ default behavior.
      (use the C++/Rust comment syntax `// BUGFIX <DATE> <ISSUE>` in those languages).
 
 3. **Bump the version on every change.** Whenever you change something, increment the
-   `version` field in `pyproject.toml` (currently `0.6.2`) — or the respective
+   `version` field in `pyproject.toml` (currently `0.12.3`) — or the respective
    equivalent for other languages (`Cargo.toml` for Rust, etc.). Use semantic
    versioning: bump the patch for bug fixes, the minor for new features.
 
@@ -30,6 +30,14 @@ default behavior.
    matching the bumped `pyproject.toml` version. Once a set of new features or bug
    fixes is implemented, commit the changes **only after** you have updated the
    `README.md` changelog.
+   - **Keep entries concise.** One bullet per change: what changed, and — only if
+     not obvious from that — the file/function it's in and the concrete effect
+     (a number, a behavior, what breaks or changes for existing data/callers).
+     Skip the rationale narrative, the "why we didn't do X instead," and restating
+     what the code already makes obvious. A bugfix gets one line naming the wrong
+     behavior and the fix, not a walkthrough of how it was found. Scientific
+     results are the exception: keep the concrete numbers (Δφ_c, σ, %), since
+     those are the actual research record — but still cut the surrounding prose.
 
 5. **Prefer transparency over speed.** When choosing between a non-transparent but
    faster approach and a more transparent but slightly slower one, always choose the
