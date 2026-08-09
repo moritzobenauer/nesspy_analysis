@@ -13,6 +13,14 @@
 # rendered when lattice_overview.png is missing. A run that already has both is
 # skipped without launching python at all.
 #
+# A run whose analysis FAILS is a third case. It writes no analysis CSV and no
+# lattice_overview.png, so by the rule above it looks outstanding forever — and
+# the watcher would re-run the whole thing, lattice rendering included, on every
+# cycle, only to fail again. Some failures are genuinely permanent (a
+# susceptibility fit that will not converge for the mu range sampled), so a
+# failing run drops an analysis_failed.md marker and is left alone until its
+# data actually changes. Any new out.csv makes it worth another try; so does -f.
+#
 # Runs are processed one at a time because the analysis itself spawns a
 # multiprocessing Pool internally.
 #
@@ -33,6 +41,7 @@ TIMESTAMP="$(date +%Y-%m-%d_%H-%M-%S)"
 n_analyzed=0
 n_skipped=0
 n_failed=0
+n_known_bad=0
 failed_runs=()
 
 while IFS= read -r run_dir; do
@@ -54,6 +63,16 @@ while IFS= read -r run_dir; do
         if [[ ! -f "${run_dir}/${LATTICE_PNG}" ]]; then
             needs_vis=1
         fi
+
+        # Known-bad: it failed before and nothing has arrived since, so there is
+        # no reason to expect a different outcome. -f skips this check, which is
+        # how a run gets retried on demand after the cause has been dealt with.
+        if [[ -f "${run_dir}/${FAILED_FILE}" ]] && \
+           [[ -z "$(find "${run_dir}" -name out.csv -newer "${run_dir}/${FAILED_FILE}" -print -quit)" ]]; then
+            echo "Skipping ${name} -- failed before, no new data since (see ${FAILED_FILE})"
+            n_known_bad=$((n_known_bad + 1))
+            continue
+        fi
     fi
 
     if [[ "${needs_analysis}" -eq 0 && "${needs_vis}" -eq 0 ]]; then
@@ -72,16 +91,43 @@ while IFS= read -r run_dir; do
             > "${log}" 2>&1; then
         n_analyzed=$((n_analyzed + 1))
         echo "  done -- log: ${log}"
+        # Whatever was wrong before is evidently fixed.
+        rm -f "${run_dir}/${FAILED_FILE}"
     else
         n_failed=$((n_failed + 1))
         failed_runs+=("${name}")
         echo "  FAILED -- see ${log}:"
         tail -3 "${log}" | sed 's/^/    /'
+
+        # Leave the reason in the run directory, next to run_catalog.md, so the
+        # failure is visible where the data is and not only in a pipeline log
+        # that gets harder to find with every cycle.
+        {
+            echo "# Analysis failed: ${name}"
+            echo
+            echo "Failed: $(date '+%Y-%m-%d %H:%M:%S')"
+            echo "Full log: \`${log}\`"
+            echo
+            echo "This run is skipped on later cycles until a new out.csv arrives for it."
+            echo "To retry by hand once the cause is dealt with:"
+            echo
+            echo '```bash'
+            echo "rm '${run_dir}/${FAILED_FILE}'"
+            echo "bash database/analyze_new.sh"
+            echo '```'
+            echo
+            echo "## Last lines of the log"
+            echo
+            echo '```'
+            tail -20 "${log}"
+            echo '```'
+        } > "${run_dir}/${FAILED_FILE}"
     fi
 done < <(find_run_dirs)
 
 echo
-echo "Analysis done: ${n_analyzed} analyzed, ${n_skipped} already complete, ${n_failed} failed."
+echo "Analysis done: ${n_analyzed} analyzed, ${n_skipped} already complete," \
+     "${n_known_bad} known-failing (skipped), ${n_failed} failed."
 if [[ "${n_failed}" -gt 0 ]]; then
     printf '  failed: %s\n' "${failed_runs[*]}"
     exit 1

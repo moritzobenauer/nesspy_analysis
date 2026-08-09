@@ -35,9 +35,15 @@ echo "=== 4/4  fill in the spreadsheet ==="
 # database/results.xlsx. Run from the repository root so that the `@database/...`
 # file reference in the prompt resolves.
 REPO_ROOT="$(cd "${HERE}/.." && pwd)"
+# The Edit/Write/NotebookEdit tools and any `uv`/`git` mutation are denied outright
+# (belt-and-suspenders on top of the prompt instruction below) so this stage can
+# only ever change database/results.xlsx, which it writes through a Bash+openpyxl
+# script rather than the Edit/Write tools.
+STAGE4_SETTINGS='{"permissions":{"deny":["Edit","Write","NotebookEdit","Bash(uv add:*)","Bash(uv remove:*)","Bash(uv sync:*)","Bash(git add:*)","Bash(git commit:*)","Bash(git rm:*)","Bash(git mv:*)"]}}'
 (
   cd "${REPO_ROOT}"
-  claude -p "Look at the @database/results.xlsx file. Based on the newly analyzed data fill out that spread sheet. Never touch the MLO_CHECK column." --model claude-sonnet-5
+  claude -p "Look at the @database/results.xlsx file. Based on the newly analyzed data fill out that spread sheet. Never touch the MLO_CHECK column. Do not modify, create, or delete any other file in this repository under any circumstances -- no dependency changes, no version bumps, no README/changelog edits, nothing outside database/results.xlsx. If filling out the spreadsheet would require changing any other file, stop and report that instead." \
+    --model claude-sonnet-5 --settings "${STAGE4_SETTINGS}"
 )
 
 exit "${analyze_status}"

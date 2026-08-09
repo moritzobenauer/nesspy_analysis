@@ -84,6 +84,33 @@ as a parent run directory whose subfolders each contain an `out.csv`. Each `out.
 One `out.csv` = measurements at one chemical potential `mu`. Final lattice states are
 `lattice_final.npy` files (values in {-2,-1,0,1,2} encoding species/spin).
 
+### Quick shell inspection of a run directory
+
+For simple questions about an `out.csv` ("which nesspy version?", "how many
+trajectories?"), **use these one-liners** rather than spinning up Python or writing
+a multi-step pipeline. They are the sanctioned, fastest way to answer these.
+
+```bash
+# nesspy version that produced this out.csv — prints just the version string
+grep -oE 'nesspy Version [^,]+' out.csv | awk '{print $3}'
+
+# number of independent trajectories (data rows, skipping '#' header block
+# and the CSV column-name line)
+awk '!/^[[:space:]]*#/ && NF {if (header) rows++; else header=1} END {print rows+0}' out.csv
+```
+
+Simulations run on the cluster leave Slurm logs next to the output. Check them with
+`tail slurm_error.err` and `tail slurm_report.out` to see whether a run finished
+cleanly. A line such as
+
+```
+srun: error: della-h17n1: task 0: Out Of Memory
+```
+
+in `slurm_report.out` means the process was killed for lack of memory. That is not
+necessarily fatal for the analysis (the rows already written are still usable), but
+**always flag it to the user** — the trajectory count will be short.
+
 ## Architecture (`src/nesspy_analysis/`)
 
 `__init__.py` re-exports everything via `from .module import *`, so all public

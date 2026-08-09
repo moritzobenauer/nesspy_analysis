@@ -156,6 +156,30 @@ dataset.
 
 ## Changelog
 
+### 0.12.2
+
+- **Locked down stage 4 of `database/run_pipeline.sh`.** The nested `claude -p` call
+  that fills in `results.xlsx` was observed editing files outside its remit
+  (`pyproject.toml`, `uv.lock`, `README.md`) on its first watcher run. The prompt now
+  explicitly forbids any change outside `database/results.xlsx`, and `--settings` denies
+  the `Edit`/`Write`/`NotebookEdit` tools plus `uv add|remove|sync` and `git
+  add|commit|rm|mv` as a hard backstop, since the prior changes went through those
+  paths rather than the spreadsheet-writing Bash+openpyxl script.
+
+### 0.12.1
+
+- **`database/results.xlsx` filled in from the first fully-analyzed batch under
+  `MANUSCRIPT_2026`.** Four runs (S3/S6, \(\Delta\mu\) = 0 and 0.5, `jhom=-3.5`)
+  transcribed from their `run_catalog.md` / `critical_supersat.txt` /
+  `order_disorder_analysis.csv` outputs; `CRITICAL_V` (growth speed at the critical
+  supersaturation) is computed by picking the analysis-CSV row whose `dphi` is
+  closest to `critical_supersat`, mirroring `growth_speed_at_critical()` in
+  `analyzing_order_disorder.py`. `MLO CHECK` left untouched, `SYMLINK` filled with a
+  `file://` hyperlink to each run directory.
+- Added `openpyxl` as a runtime dependency -- reading/writing `results.xlsx` in place
+  (so its existing formatting survives) needs it; `pandas.read_excel`/`to_excel`
+  alone do not cover in-place style-preserving writes.
+
 ### 0.12.0
 
 - **`run_pipeline.sh` gained a fourth stage: the results spreadsheet fills itself in.**
