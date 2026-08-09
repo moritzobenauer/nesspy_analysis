@@ -2,6 +2,48 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Working conventions for the assistant
+
+These conventions govern how you work in this repository and take precedence over
+default behavior.
+
+1. **Role & languages.** You are a research and coding assistant for computational
+   physics. Your main job is to implement functions and features. You may use
+   **Python, Rust, and C++** at any time. If you feel you must use any other
+   language, **ask the user first**.
+
+2. **Reproducibility & understanding come first.** These are the most important
+   concepts in research-based coding.
+   - For **larger projects**, build proper documentation *when the user asks for it*.
+   - For **smaller projects**, use many detailed comments throughout the code.
+   - Indicate bug fixes with a comment of the form `# BUGFIX <DATE> <ISSUE>`
+     (use the C++/Rust comment syntax `// BUGFIX <DATE> <ISSUE>` in those languages).
+
+3. **Bump the version on every change.** Whenever you change something, increment the
+   `version` field in `pyproject.toml` (currently `0.12.3`) — or the respective
+   equivalent for other languages (`Cargo.toml` for Rust, etc.). Use semantic
+   versioning: bump the patch for bug fixes, the minor for new features.
+
+4. **Record changes, then commit.** This repo tracks changes in the **`## Changelog`
+   section of `README.md`**, with one `### <version>` block per release (newest
+   first) — follow that existing format. After changing something, add an entry there
+   matching the bumped `pyproject.toml` version. Once a set of new features or bug
+   fixes is implemented, commit the changes **only after** you have updated the
+   `README.md` changelog.
+   - **Keep entries concise.** One bullet per change: what changed, and — only if
+     not obvious from that — the file/function it's in and the concrete effect
+     (a number, a behavior, what breaks or changes for existing data/callers).
+     Skip the rationale narrative, the "why we didn't do X instead," and restating
+     what the code already makes obvious. A bugfix gets one line naming the wrong
+     behavior and the fix, not a walkthrough of how it was found. Scientific
+     results are the exception: keep the concrete numbers (Δφ_c, σ, %), since
+     those are the actual research record — but still cut the surrounding prose.
+
+5. **Prefer transparency over speed.** When choosing between a non-transparent but
+   faster approach and a more transparent but slightly slower one, always choose the
+   more transparent approach. The target audience is **researchers, not full-time
+   software developers**.
+
 ## Overview
 
 `nesspy_analysis` is a Python package for post-processing output from `nesspy`, a
@@ -50,6 +92,33 @@ as a parent run directory whose subfolders each contain an `out.csv`. Each `out.
 One `out.csv` = measurements at one chemical potential `mu`. Final lattice states are
 `lattice_final.npy` files (values in {-2,-1,0,1,2} encoding species/spin).
 
+### Quick shell inspection of a run directory
+
+For simple questions about an `out.csv` ("which nesspy version?", "how many
+trajectories?"), **use these one-liners** rather than spinning up Python or writing
+a multi-step pipeline. They are the sanctioned, fastest way to answer these.
+
+```bash
+# nesspy version that produced this out.csv — prints just the version string
+grep -oE 'nesspy Version [^,]+' out.csv | awk '{print $3}'
+
+# number of independent trajectories (data rows, skipping '#' header block
+# and the CSV column-name line)
+awk '!/^[[:space:]]*#/ && NF {if (header) rows++; else header=1} END {print rows+0}' out.csv
+```
+
+Simulations run on the cluster leave Slurm logs next to the output. Check them with
+`tail slurm_error.err` and `tail slurm_report.out` to see whether a run finished
+cleanly. A line such as
+
+```
+srun: error: della-h17n1: task 0: Out Of Memory
+```
+
+in `slurm_report.out` means the process was killed for lack of memory. That is not
+necessarily fatal for the analysis (the rows already written are still usable), but
+**always flag it to the user** — the trajectory count will be short.
+
 ## Architecture (`src/nesspy_analysis/`)
 
 `__init__.py` re-exports everything via `from .module import *`, so all public
@@ -62,10 +131,25 @@ functions are available as `npa.<name>`.
   **bootstrap resampling** (`bootstrap=True`, `n_samples` as a *fraction*). It also
   derives `growth_speed = L_y^2 * 2 / <t>` with Gaussian-propagated error, and
   cross-checks per-row params against the header. `get_m_vals()` returns raw `m`
-  arrays; `get_data_point_from_out_file()` does the aggregation.
+  arrays; `get_data_point_from_out_file()` does the aggregation. It also reads the
+  `# nesspy Version ..., Release Date: ...` banner (`get_nesspy_version()`,
+  `is_legacy_output()`) and the `# hrc`/`# hrc_method` entries (`get_hrc()`), which
+  is how legacy files get their driving scheme remapped (`report_legacy_output()`).
+  `get_inverse_drive()` / `get_inverse_drive_and_scheme()` read the inverse
+  (backward) drive that nesspy >= 1.10.1 records (`inverse_drive` /
+  `inverse_scheme` columns, `# inverse_drive` / `# inverse_drive_scheme` header
+  entries as a fallback); output without it reads as `(0.0, "S0")`.
+- **`schemes.py`** — the driving-scheme registry: the canonical `S0`-`S6` names,
+  their labels, the legacy-alias table (`canonical_scheme()`), both `hrc_method`
+  catalogues (`scheme_from_hrc(..., legacy=...)`), the nesspy version gate that
+  decides between them (`is_legacy_scheme_numbering()`), and the inverse-drive
+  resolver (`inverse_scheme_from_hrc()`, Δμ-family only). It imports nothing from
+  the package, so both `read_csv.py` and `classes.py` can use it.
 - **`classes.py`** — the top-level analysis API.
   - `Thermos` (frozen dataclass) — thermodynamic params for a system (`jhom`, `jhet`,
-    `beta`, `fres`, `k`, `dmu`, `method`); consumed by FLEX theory.
+    `beta`, `fres`, `k`, `dmu`, `method`); consumed by FLEX theory. It also carries
+    the inverse (backward) drive `drive_reverse` / `drive_scheme_reverse`, which is
+    currently *only read and stored* — no physics consumes it yet.
   - `Lattice2D` — lattice geometry / PBC / restricted-sampling metadata.
   - `DynamicalOrderDisorder(name, base_path)` — the main workhorse. Loads all
     `out.csv` under `base_path` and computes: raw data (`get_data`, `get_raw_data`),
@@ -79,8 +163,9 @@ functions are available as `npa.<name>`.
   `fit_polynomial()` (cubic about an offset `x0`).
 - **`flex.py`** — FLEX / mean-field theory. `calculate_dphi(mu, thermos)` returns the
   density-difference order parameter; branches on `thermos.method`
-  (`NODRIVE` = exact undriven solution, `HOMO`/`SCHEME_*` = driven FLEX solutions,
-  each scheme rescaling `dmu` or `k` differently).
+  (`S0` = exact undriven solution, `S1`-`S6` = driven FLEX solutions, each scheme
+  rescaling `dmu` or `k` differently at the mean-field environment of two
+  neighbours).
 - **`plots.py`** — lattice visualization and config-based observables.
   `plot_lattice_clean()` and `plot_all_configurations()` render `.npy` lattices with a
   fixed 5-value colormap; `calculate_order_parameter(method="MLO2024")` and
@@ -89,10 +174,19 @@ functions are available as `npa.<name>`.
 
 ## Conventions
 
-- "Driving schemes" (`SCHEME_3`, `SCHEME_6`, `SCHEME_7`, `SCHEME_91`, `SCHEME_93`,
-  `HOMO`, `NODRIVE`) recur across both `flex.py` and the data directory names — a
-  scheme identifies how the non-equilibrium drive is applied. Keep the string names
-  consistent when adding new ones.
+- **Driving schemes are named `S0`-`S6`** (`S0` = undriven reference, `S1` =
+  homogeneous driving, `S2`-`S6` = heterogeneous), matching the manuscript and
+  `nesspy` >= 1.9.0. **Use these names in all new code, plots and text.** The
+  pre-rename spellings (`NODRIVE`, `HOMO`, `SCHEME91`, `SCHEME_3`, ... — still
+  present in older data directory names) are accepted as aliases and normalised by
+  `canonical_scheme()`; do not introduce new ones. Registering a new scheme means
+  adding it to `schemes.py` (label + `hrc_method` mapping) *and* to the two physics
+  implementations (`flex.py`, `get_steady_state_probabilities_numerical()`).
+- **`hrc_method` numbers are version-dependent.** nesspy 1.9.0 (2026-08-03) renamed
+  the schemes, so the same number means different things before and after: legacy
+  `6.0` is S5 but modern `6.0` is S6. Always resolve a scheme through
+  `scheme_from_hrc(hrc, hrc_method, legacy=is_legacy_output(file))` — never read
+  `hrc_method` as if it were a scheme name. See `dealing_with_different_schemes.md`.
 - Order-parameter extraction (`MLO2024` method, the `lb_trr`/`ub_trr` column band, the
   {-2..2} lattice encoding) mirrors `nesspy`'s own definitions — changing it changes
   comparability with the simulator's output.

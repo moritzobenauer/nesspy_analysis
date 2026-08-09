@@ -1,7 +1,14 @@
 from pathlib import Path
 import pandas as pd
 from .iterdir import iterdirs, find_all_final_configs
-from .read_csv import read_csv, get_m_vals, get_epsilon, get_epsilon_het
+from .read_csv import (
+    read_csv, get_m_vals, get_epsilon, get_epsilon_het,
+    get_nesspy_version, report_legacy_run, get_inverse_drive_and_scheme,
+)
+from .schemes import (
+    SCHEMES, SCHEME_LABELS, SCHEME_ALIASES, canonical_scheme, scheme_from_hrc,
+    scheme_short_label, scheme_math_label, scheme_description,
+)
 from .fitting import fit_lorentzian, lorentzian, polynomial, fit_polynomial, sigmoid, fit_sigmoid
 import numpy as np
 from scipy.stats import sem
@@ -23,12 +30,49 @@ class Thermos:
     fres: float = -20.0
     k: float = 1.0
     dmu: float = 0.0
-    method: str = "NODRIVE"
+
+    # Driving scheme, named S0-S6 (see schemes.py). The pre-rename spellings
+    # ("NODRIVE", "HOMO", "SCHEME91", ...) are accepted and normalised in
+    # __post_init__, so `Thermos(method="HOMO").method` reads back as "S1".
+    method: str = "S0"
+
+    # The inverse ("reverse") chemical drive: nesspy >= 1.10.0 gives the backward
+    # inactive -> active reaction (-1 -> 1, -2 -> 2) its own drive, multiplying
+    # that rate by exp(drive_reverse), with its own Delta-mu-family scheme. Both
+    # are recorded in out.csv from nesspy 1.10.1 on and read by
+    # `get_inverse_drive_and_scheme()`; output older than that states no inverse
+    # drive and reads as the defaults below, an undriven backward channel.
+    #
+    # These are stored for provenance only -- no consumer (flex.py,
+    # get_steady_state_probabilities_numerical) uses them yet, so a nonzero
+    # inverse drive is not currently reflected in any theory curve.
+    drive_reverse: float = 0.0
+    drive_scheme_reverse: str = "S0"
 
     # In the future it might be even more useful to provide an interaction matrix
-    # for more complex systems.
+    # for more complex systems. By default it is derived from jhom/jhet in
+    # __post_init__ (diagonal = jhom, off-diagonal = jhet); pass it explicitly to
+    # override.
+    epsilon_matrix: np.array = None
 
-    epsilon_matrix: np.array = field(default_factory=lambda: np.array([[-3.5, -2.0], [-2.0, -3.5]]))
+    def __post_init__(self):
+        # frozen dataclass -> assign via object.__setattr__. Normalise the
+        # scheme name so every consumer sees the canonical S0-S6 spelling; an
+        # unknown name raises here rather than silently reaching the physics.
+        object.__setattr__(self, "method", canonical_scheme(self.method))
+        object.__setattr__(
+            self, "drive_scheme_reverse", canonical_scheme(self.drive_scheme_reverse)
+        )
+
+        # Only build the matrix from jhom/jhet when the caller didn't supply
+        # one, so the interaction matrix stays consistent with the detected
+        # couplings.
+        if self.epsilon_matrix is None:
+            object.__setattr__(
+                self,
+                "epsilon_matrix",
+                np.array([[self.jhom, self.jhet], [self.jhet, self.jhom]]),
+            )
 
 
 @dataclass(kw_only=True)
@@ -44,6 +88,17 @@ class Lattice2D:
 
 
 # ---------------------------------------------------------------------------
+# Driving schemes.
+#
+# The registry itself lives in schemes.py (it is needed by read_csv.py too, and
+# that module cannot import from here). The names are re-exported so that
+# `npa.scheme_from_hrc(...)` and `from nesspy_analysis.classes import
+# SCHEME_LABELS` keep working. Schemes are named S0-S6 throughout; the old
+# spellings ("HOMO", "SCHEME91", ...) are still accepted as aliases.
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
 # Nearest-neighbour correlation weights w(q) and the corrected supersaturation.
 # These module-level helpers back DynamicalOrderDisorder.get_wq() and
 # .get_logarithmic_supersat_corrected(). They are kept at module scope (rather
@@ -51,14 +106,75 @@ class Lattice2D:
 # ---------------------------------------------------------------------------
 
 
+def scheme_rescaled_drive_and_rate(scheme, M, k, environment):
+    """Apply a driving scheme's local perturbation to the drive and the rate.
+
+    Returns ``(M_red, M_blue, k)`` for the local environment
+    ``(n_red, n_blue)``, where ``M = exp(dmu)`` is the drive as read from the
+    data and ``M_red``/``M_blue`` are the drives seen by the red-active and
+    blue-active states. They differ only for the colour-conditioned S6. See
+    dealing_with_different_schemes.md for the definition of each ``scheme``,
+    which is one of S0-S6 (legacy aliases accepted).
+
+    This mirrors ``spatial_dmu()``/``spatial_baserate()`` in ``nesspy/src/hrc.py``
+    -- nesspy is authoritative for what each scheme does, since it generated the
+    data being analyzed.
+    """
+    scheme = canonical_scheme(scheme)
+    n_red, n_blue = environment
+
+    M_red = M
+    M_blue = M
+
+    if scheme in ("S0", "S1"):
+        # S1 / homogeneous driving: base rate is unity, drive used as read.
+        # S0 is the undriven reference and behaves the same here (M = 1).
+        k = 1.0
+    elif scheme == "S2":
+        # S2: rate rescaled by the total number of neighbours.
+        k = k * np.exp(-(n_red + n_blue))
+    elif scheme == "S3":
+        # S3: rate rescaled by the neighbour difference.
+        k = k * np.exp(-np.abs(n_red - n_blue))
+    elif scheme == "S4":
+        # S4: drive dmu rescaled by |n_red + n_blue|; k unchanged.
+        dmu0 = np.log(M)
+        M_red = M_blue = np.exp(dmu0 * np.exp(-np.abs(n_red + n_blue)))
+    elif scheme == "S5":
+        # S5: drive dmu rescaled by |n_red - n_blue|; k unchanged.
+        dmu0 = np.log(M)
+        M_red = M_blue = np.exp(dmu0 * np.exp(-np.abs(n_red - n_blue)))
+    elif scheme == "S6":
+        # S6: colour-conditioned drive, exponential in the *likewise*-neighbour
+        # count n' (n_red for a red site, n_blue for a blue site), so the drive
+        # decreases monotonically as a site gains neighbours of its own colour.
+        # k is unchanged.
+        #
+        # BUGFIX 2026-08-05 the two drives were conditioned on the *unlike*
+        # neighbours (M_red damped by n_blue and vice versa), following
+        # dealing_with_different_schemes.md. nesspy conditions on the likewise
+        # count -- `nhat = nred if current_state == 1 else nblue` in
+        # nesspy/src/hrc.py with RED = 1 in nesspy/src/kmc.py -- and nesspy is
+        # authoritative, so red is damped by n_red and blue by n_blue.
+        dmu0 = np.log(M)
+        M_red = np.exp(dmu0 * np.exp(-n_red))
+        M_blue = np.exp(dmu0 * np.exp(-n_blue))
+    else:
+        raise ValueError(f"Unknown driving scheme: {scheme}")
+
+    return (M_red, M_blue, k)
+
+
 def get_steady_state_probabilities_numerical(
-    epsilon_homo, epsilon_hetero, mu, F, M, k, environment, scheme="HOMO"
+    epsilon_homo, epsilon_hetero, mu, F, M, k, environment, scheme="S1"
 ):
     """Stationary occupancy probabilities of the 5-state single-site model.
 
     Returns ``(p_active, p_non_bonding)`` for the given local environment
     ``(n_red, n_blue)``. The driving scheme rescales the rate constant ``k`` or
-    the drive ``M`` as a function of the environment.
+    the drive ``M`` as a function of the environment via
+    :func:`scheme_rescaled_drive_and_rate`. ``scheme`` is one of S0-S6 (legacy
+    aliases accepted).
     """
     n_red, n_blue = environment
 
@@ -66,23 +182,19 @@ def get_steady_state_probabilities_numerical(
     U_blue = np.exp(n_red * epsilon_hetero + n_blue * epsilon_homo)
     z = np.exp(mu)
 
-    if scheme == "HOMO":
-        k = 1.0
-    elif scheme == "SCHEME91":
-        k = k * np.exp(-(n_red + n_blue))
-    elif scheme == "SCHEME93":
-        k = k * np.exp(-np.abs(n_red - n_blue))
-    elif scheme == "SCHEME6":
-        dmu0 = np.log(M)
-        M = np.exp(dmu0 * np.exp(-np.abs(n_red - n_blue)))
+    # The drive enters the generator separately for the red-active and
+    # blue-active states, so we track M_red / M_blue independently. For every
+    # scheme except the colour-conditioned S6 the two are equal.
+    M_red, M_blue, k = scheme_rescaled_drive_and_rate(scheme, M, k, environment)
 
-    # Set up the generator matrix
+    # Set up the generator matrix. The red-active row uses M_red and the
+    # blue-active row uses M_blue (identical except for S6).
     L = np.array(
         [
             [-2 * (z + z * F), z, z * F, z, z * F],
-            [U_red, -U_red - U_red * k * F * M, U_red * k * F * M, 0, 0],
+            [U_red, -U_red - U_red * k * F * M_red, U_red * k * F * M_red, 0, 0],
             [1.0, k, -(k + 1), 0, 0],
-            [U_blue, 0.0, 0.0, -U_blue * (1 + F * M * k), U_blue * F * M * k],
+            [U_blue, 0.0, 0.0, -U_blue * (1 + F * M_blue * k), U_blue * F * M_blue * k],
             [1.0, 0.0, 0.0, k, -(1 + k)],
         ],
         dtype=np.float64,
@@ -248,11 +360,18 @@ class DynamicalOrderDisorder:
         self.cluster_data = None
         self.sigmoid_params = None
         self.critical_supersat = None
+        self.critical_supersat_err = None
+        self.critical_supersat_cov_err = None
         self.files, self.csv_file_number = iterdirs(self.base_path)
 
         logging.info(
             f"Initialized DynamicalOrderDisorder analysis for {self.name} with {self.csv_file_number} CSV files"
         )
+
+        # If this run was written by a pre-1.9.0 nesspy, say so once here for the
+        # whole run directory. Doing it at construction keeps the per-mu notices
+        # from read_csv() quiet no matter which method is called first.
+        report_legacy_run(self.base_path, self.files)
 
     def get_thermos_from_file(self) -> Thermos:
         """Auto-detect the Thermos parameters from the simulation output.
@@ -264,9 +383,19 @@ class DynamicalOrderDisorder:
         ``hrc`` and ``hrc_method`` are read from the data rows. Any inconsistency
         across files raises ``ValueError``.
 
-        Only the homogeneous case (``hrc`` inactive → ``'HOMO'``) is supported;
-        an active ``hrc`` raises ``NotImplementedError`` until its scheme mapping
-        is added.
+        The ``(hrc, hrc_method)`` pair of each file is mapped onto its canonical
+        driving scheme (S0-S6) via :func:`scheme_from_hrc`: ``hrc`` inactive →
+        ``'S1'`` (homogeneous driving), and each active ``hrc_method`` → its
+        heterogeneous scheme (S2..S6). Because nesspy 1.9.0 (2026-08-03) renamed
+        the schemes, the mapping is done **per file** with the catalogue matching
+        that file's own nesspy version banner; a folder written by a pre-1.9.0
+        nesspy is reported on stdout together with the remapping applied. An
+        ``hrc_method`` with no counterpart here raises ``NotImplementedError``.
+
+        The inverse (backward) drive ``drive_reverse`` and its scheme
+        ``drive_scheme_reverse`` are read the same way, from the ``inverse_drive``
+        / ``inverse_scheme`` columns that nesspy >= 1.10.1 writes; a folder of
+        older runs states no inverse drive and yields ``(0.0, 'S0')``.
         """
 
         def _as_bool(v):
@@ -275,57 +404,141 @@ class DynamicalOrderDisorder:
             return bool(v)
 
         fres_vals, dmu_vals, k_vals = set(), set(), set()
-        hrc_vals, hrc_method_vals = set(), set()
         jhom_vals, jhet_vals = set(), set()
+
+        # Scheme detection is per file: the same physical scheme is numbered
+        # differently before and after the nesspy 1.9.0 renaming, so a folder may
+        # legitimately mix hrc_method=6.0 (legacy) and 5.0 (modern) and still be
+        # one single scheme (S5). We therefore compare the *resolved* schemes.
+        schemes: set[str] = set()
+        legacy_examples: list[tuple] = []
+
+        # The inverse (backward) drive and its scheme, recorded by nesspy
+        # >= 1.10.1. Files that predate it contribute (0.0, "S0") -- an undriven
+        # backward channel -- so a folder of older runs is detected exactly as
+        # before.
+        drive_reverse_vals: set[float] = set()
+        reverse_schemes: set[str] = set()
+
+        # Count the files that actually contributed, so a run directory in which
+        # *every* out.csv is header-only fails with a clear message instead of an
+        # opaque "Inconsistent 'fres' ... : []" further down.
+        contributing = 0
 
         for f in self.files:
             _df = pd.read_csv(f, comment="#", skip_blank_lines=True)
+
+            # BUGFIX 2026-08-06 A header-only out.csv (a mu whose runs wrote no
+            # measurement rows, e.g. because they hit max_time before finishing)
+            # used to reach the `hrc` consistency check with an empty column and
+            # raise "Inconsistent 'hrc' within <file>: []". get_data() already
+            # skips such a mu and keeps going, so parameter detection has to skip
+            # it the same way -- otherwise a single unfinished mu makes the whole
+            # run directory unanalyzable.
+            if _df.empty:
+                logger.warning(
+                    "Skipping %s for parameter detection: no measurement rows.", f
+                )
+                continue
+            contributing += 1
+
             fres_vals.update(np.round(_df["fres"].unique(), 8))
             dmu_vals.update(np.round(_df["dmu"].unique(), 8))
             k_vals.update(np.round(_df["k"].unique(), 8))
-            hrc_vals.update(_as_bool(v) for v in _df["hrc"].unique())
-            hrc_method_vals.update(np.round(_df["hrc_method"].unique(), 8))
             jhom_vals.add(round(get_epsilon(f), 8))
             jhet_vals.add(round(get_epsilon_het(f), 8))
 
+            hrc_file = {_as_bool(v) for v in _df["hrc"].unique()}
+            if len(hrc_file) != 1:
+                raise ValueError(f"Inconsistent 'hrc' within {f}: {sorted(hrc_file)}")
+            hrc = next(iter(hrc_file))
+
+            # hrc_method only selects a scheme when hrc is active. For
+            # homogeneous driving (hrc inactive) the note says it "can be any
+            # float value", so we don't require consistency in that case.
+            method_file = {
+                float(v) for v in np.round(_df["hrc_method"].unique(), 8)
+            }
+            if hrc and len(method_file) != 1:
+                raise ValueError(
+                    f"Inconsistent 'hrc_method' within {f}: {sorted(method_file)}"
+                )
+            hrc_method = (
+                next(iter(method_file)) if method_file else float("nan")
+            )
+
+            drive_reverse_file, reverse_scheme_file = get_inverse_drive_and_scheme(
+                f, hrc=hrc
+            )
+            drive_reverse_vals.add(round(drive_reverse_file, 8))
+            reverse_schemes.add(reverse_scheme_file)
+
+            version = get_nesspy_version(f)
+            scheme = scheme_from_hrc(
+                hrc, hrc_method, legacy=version.legacy_schemes
+            )
+            schemes.add(scheme)
+            if version.legacy_schemes:
+                legacy_examples.append((version, hrc, hrc_method, scheme))
+
+        if contributing == 0:
+            raise ValueError(
+                f"None of the {len(self.files)} out.csv files under "
+                f"{self.base_path} contain measurement rows, so no simulation "
+                f"parameters could be detected."
+            )
+
+        # The consistency checks below quote `contributing`, not len(self.files):
+        # header-only files were skipped above and never contributed a value.
         for name, vals in [
             ("fres", fres_vals),
             ("dmu", dmu_vals),
             ("k", k_vals),
-            ("hrc", hrc_vals),
-            ("hrc_method", hrc_method_vals),
             ("jhom", jhom_vals),
             ("jhet", jhet_vals),
+            ("drive_reverse", drive_reverse_vals),
         ]:
             if len(vals) != 1:
                 raise ValueError(
-                    f"Inconsistent '{name}' across the {len(self.files)} out.csv "
-                    f"files: {sorted(vals)}"
+                    f"Inconsistent '{name}' across the {contributing} out.csv "
+                    f"files with data: {sorted(vals)}"
                 )
+        if len(schemes) != 1:
+            raise ValueError(
+                f"Inconsistent driving scheme across the {contributing} "
+                f"out.csv files with data: {sorted(schemes)}"
+            )
+        if len(reverse_schemes) != 1:
+            raise ValueError(
+                f"Inconsistent inverse-drive scheme across the {contributing} "
+                f"out.csv files with data: {sorted(reverse_schemes)}"
+            )
 
         fres = float(next(iter(fres_vals)))
         dmu = float(next(iter(dmu_vals)))
         k = float(next(iter(k_vals)))
-        hrc = next(iter(hrc_vals))
-        hrc_method = float(next(iter(hrc_method_vals)))
         jhom = float(next(iter(jhom_vals)))
         jhet = float(next(iter(jhet_vals)))
+        method = next(iter(schemes))
+        drive_reverse = float(next(iter(drive_reverse_vals)))
+        drive_scheme_reverse = next(iter(reverse_schemes))
 
-        if hrc:
-            raise NotImplementedError(
-                f"Active hrc (hrc_method={hrc_method}) is not mapped to a driving "
-                "scheme yet; only the homogeneous case (hrc inactive -> 'HOMO') "
-                "is supported."
-            )
-        method = "HOMO"
+        # Report the legacy remapping once for the whole run directory, in case
+        # __init__ could not (an hrc_method it cannot map is only resolvable
+        # here). Already-reported directories stay quiet.
+        if legacy_examples:
+            report_legacy_run(self.base_path, self.files)
 
         thermos = Thermos(
-            jhom=jhom, jhet=jhet, fres=fres, dmu=dmu, k=k, method=method
+            jhom=jhom, jhet=jhet, fres=fres, dmu=dmu, k=k, method=method,
+            drive_reverse=drive_reverse,
+            drive_scheme_reverse=drive_scheme_reverse,
         )
         logger.info(
             "Detected Thermos from files: jhom=%s, jhet=%s, fres=%s, dmu=%s, "
-            "k=%s, method=%s",
-            jhom, jhet, fres, dmu, k, method,
+            "k=%s, method=%s (%s), drive_reverse=%s, drive_scheme_reverse=%s",
+            jhom, jhet, fres, dmu, k, method, scheme_description(method),
+            drive_reverse, drive_scheme_reverse,
         )
         return thermos
 
@@ -419,7 +632,13 @@ class DynamicalOrderDisorder:
 
     def get_data(self) -> pd.DataFrame:
         for f in self.files:
-            self.df, header = read_csv(f, n_samples=1.0, bootstrap=False)
+            try:
+                self.df, header = read_csv(f, n_samples=1.0, bootstrap=False)
+            except ValueError as e:
+                # e.g. an out.csv for some mu that contains no measurement rows;
+                # skip that mu and keep going so the run still analyzes.
+                logger.warning("Skipping %s: %s", f, e)
+                continue
             self.data = pd.concat([self.data, self.df], ignore_index=True)
 
         return self.data
@@ -664,16 +883,36 @@ class DynamicalOrderDisorder:
         self.data["dphi"] = self.data["mu"].map(dphi_by_mu)
         return self.data
 
-    def get_critical_supersat(self) -> float:
-        """Critical supersaturation from a sigmoidal fit of m vs log(S).
+    def get_critical_supersat(self) -> list[float, float]:
+        """Critical supersaturation (± error) from a sigmoidal fit of m vs log(S).
 
         Fits the order parameter ``m`` against the corrected logarithmic
         supersaturation ``dphi`` to a four-parameter logistic and returns its
-        inflection point (the critical supersaturation). Requires
-        :meth:`get_logarithmic_supersat_corrected` to have been run first.
+        inflection point (the critical supersaturation) together with an error
+        estimate. Requires :meth:`get_logarithmic_supersat_corrected` to have
+        been run first.
 
-        Caches the fit on ``self.sigmoid_params`` and the result on
-        ``self.critical_supersat``.
+        The reported error is a *sampling-resolution* estimate: the average of
+        the distances from the inflection point ``x0`` to the nearest sampled
+        ``dphi`` point above and below it. When ``x0`` lies between two sampled
+        points this equals half the width of the bracketing interval, so densely
+        sampled sweeps get a small error and sparse sweeps a large one. It
+        captures how finely the transition was sampled, not the statistical
+        scatter of the fit. If ``x0`` falls outside the sampled range (an
+        extrapolated fit) only the one available side is used and a warning is
+        logged.
+
+        The complementary *statistical* error -- the standard error on x0 from
+        ``curve_fit``'s covariance matrix (``sqrt(pcov[1, 1])``), which shrinks
+        with clean/plentiful data rather than with grid density -- is also
+        computed and cached on ``self.critical_supersat_cov_err`` (NaN if the fit
+        is unconstrained), but is not the returned value.
+
+        Caches the fit on ``self.sigmoid_params``, the value on
+        ``self.critical_supersat``, the resolution error on
+        ``self.critical_supersat_err`` and the covariance error on
+        ``self.critical_supersat_cov_err``. Returns
+        ``[value, resolution_error]``.
         """
         required = {"dphi", "m"}
         if self.data.empty or not required.issubset(self.data.columns):
@@ -682,11 +921,56 @@ class DynamicalOrderDisorder:
             )
 
         _df = self.data.dropna(subset=["dphi", "m"]).sort_values(by="dphi")
-        popt = fit_sigmoid(_df["dphi"].values, _df["m"].values)
+        popt, pcov = fit_sigmoid(_df["dphi"].values, _df["m"].values, return_cov=True)
 
         # popt = [L, x0, k, b]; the inflection point of the logistic is x0.
         self.sigmoid_params = popt
-        self.critical_supersat = float(popt[1])
+        x0 = float(popt[1])
+        self.critical_supersat = x0
 
-        logger.info("Critical supersaturation (inflection point): %.6f", self.critical_supersat)
-        return self.critical_supersat
+        # Statistical error on x0 from the fit covariance matrix (variance is the
+        # [1, 1] entry). Guard against the unconstrained-fit case where curve_fit
+        # returns inf/negative variances.
+        var_x0 = pcov[1, 1]
+        self.critical_supersat_cov_err = (
+            float(np.sqrt(var_x0)) if np.isfinite(var_x0) and var_x0 >= 0
+            else float("nan")
+        )
+
+        # Sampling-resolution error: mean distance from x0 to the nearest
+        # sampled dphi on each side (strict </> so an x0 landing exactly on a
+        # data point still measures the spacing to its neighbours).
+        dphi_sorted = np.unique(_df["dphi"].values)
+        below = dphi_sorted[dphi_sorted < x0]
+        above = dphi_sorted[dphi_sorted > x0]
+        if below.size and above.size:
+            # x0 brackets two data points -> average of both gaps
+            # (= half the bracketing interval width).
+            err = 0.5 * ((above[0] - x0) + (x0 - below[-1]))
+        elif above.size:
+            # x0 sits below the sampled range: only an upper neighbour exists.
+            logger.warning(
+                "Inflection point %.6f is below the sampled dphi range; "
+                "using one-sided (upper) spacing as its error.", x0
+            )
+            err = float(above[0] - x0)
+        elif below.size:
+            # x0 sits above the sampled range: only a lower neighbour exists.
+            logger.warning(
+                "Inflection point %.6f is above the sampled dphi range; "
+                "using one-sided (lower) spacing as its error.", x0
+            )
+            err = float(x0 - below[-1])
+        else:
+            # Degenerate: a single unique dphi value, no spacing to measure.
+            logger.warning("Only one unique dphi value; cannot estimate an error.")
+            err = float("nan")
+        self.critical_supersat_err = float(err)
+
+        logger.info(
+            "Critical supersaturation (inflection point): %.6f +- %.6f "
+            "(resolution); +- %.6f (fit covariance)",
+            self.critical_supersat, self.critical_supersat_err,
+            self.critical_supersat_cov_err,
+        )
+        return [self.critical_supersat, self.critical_supersat_err]

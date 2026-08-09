@@ -1,3 +1,4 @@
+from .schemes import *
 from .iterdir import *
 from .read_csv import *
 from .fitting import *

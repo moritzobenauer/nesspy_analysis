@@ -1,8 +1,21 @@
 from pathlib import Path
+from typing import NamedTuple
 import pandas as pd
 import numpy as np
 
 import logging
+
+from .schemes import (
+    NESSPY_SCHEME_RENAME_DATE,
+    NESSPY_SCHEME_RENAME_VERSION,
+    NO_INVERSE_DRIVE,
+    NO_INVERSE_DRIVE_SCHEME,
+    inverse_scheme_from_hrc,
+    is_legacy_scheme_numbering,
+    legacy_scheme_name,
+    parse_version_header,
+    scheme_from_hrc,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,6 +37,11 @@ def get_data_point_from_out_file(file: Path, n_samples: int, bootstrap: bool=Tru
     df = pd.read_csv(file, comment="#", header=0)
     df = df.apply(pd.to_numeric, errors="coerce")
     df = df.dropna(how="all")
+
+    # An out.csv with a header but no measurement rows leaves nothing to
+    # aggregate; signal it so callers can skip this mu.
+    if df.empty:
+        raise ValueError(f"No measurement rows in {file}")
 
     if bootstrap:
         # df = df.sample(n_samples, random_state=np.random.randint(0, 10000), replace=True)
@@ -153,6 +171,304 @@ def get_k(file: Path) -> float:
     return None
 
 
+# ---------------------------------------------------------------------------
+# nesspy version / driving-scheme provenance.
+#
+# The meaning of the `hrc_method` number in an out.csv changed with nesspy 1.9.0
+# (2026-08-03), which renamed the driving schemes to the manuscript convention
+# S1-S6. Every file states the nesspy release that wrote it in its banner, so we
+# read that banner and interpret `hrc_method` with the matching catalogue. See
+# schemes.py for both catalogues.
+# ---------------------------------------------------------------------------
+
+
+class NesspyVersion(NamedTuple):
+    """The ``# nesspy Version ...`` banner of one out.csv."""
+
+    version: str | None       # e.g. "1.4.1", None if the banner is missing
+    release_date: object      # datetime.date, or None if not stated
+    legacy_schemes: bool      # True -> hrc_method uses the pre-1.9.0 catalogue
+
+
+def get_nesspy_version(file: Path) -> NesspyVersion:
+    """Read the nesspy version banner from an out.csv header.
+
+    Files with no banner at all (very old output) are reported as legacy, which
+    is the safe assumption: the manuscript scheme numbering is newer than the
+    banner itself.
+    """
+    with open(file, "r") as f:
+        for line in f:
+            if not line.startswith("#"):
+                # The header block is contiguous and precedes the data rows, so
+                # there is nothing left to find once it ends.
+                break
+            parsed = parse_version_header(line)
+            if parsed is not None:
+                version, release_date = parsed
+                return NesspyVersion(
+                    version=version,
+                    release_date=release_date,
+                    legacy_schemes=is_legacy_scheme_numbering(version, release_date),
+                )
+    return NesspyVersion(version=None, release_date=None, legacy_schemes=True)
+
+
+def is_legacy_output(file: Path) -> bool:
+    """Whether ``file`` was written before the nesspy 1.9.0 scheme renaming."""
+    return get_nesspy_version(file).legacy_schemes
+
+
+def get_hrc(file: Path) -> tuple[bool, float] | None:
+    """Read the ``# hrc`` / ``# hrc_method`` header entries of an out.csv.
+
+    Returns ``(hrc_active, hrc_method)``, or ``None`` when the header does not
+    state them (output from before heterogeneous driving existed).
+    """
+    hrc: bool | None = None
+    hrc_method: float | None = None
+    with open(file, "r") as f:
+        for line in f:
+            if not line.startswith("#") or ":" not in line:
+                continue
+            # Compare the key exactly: "# hrc_method" also starts with "# hrc".
+            key, _, value = line.lstrip("#").partition(":")
+            key = key.strip()
+            if key == "hrc" and hrc is None:
+                hrc = value.strip().lower() == "true"
+            elif key == "hrc_method" and hrc_method is None:
+                hrc_method = float(value.strip())
+    if hrc is None or hrc_method is None:
+        return None
+    return (hrc, hrc_method)
+
+
+def _get_header_float(file: Path, key: str) -> float | None:
+    """Value of a single ``# <key>: <value>`` header entry, or None if absent.
+
+    The key is compared exactly (so ``inverse_drive`` does not also match
+    ``inverse_drive_scheme``) and a non-numeric value reads as absent.
+    """
+    with open(file, "r") as f:
+        for line in f:
+            if not line.startswith("#") or ":" not in line:
+                continue
+            name, _, value = line.lstrip("#").partition(":")
+            if name.strip() == key:
+                try:
+                    return float(value.strip())
+                except ValueError:
+                    return None
+    return None
+
+
+def get_inverse_drive(file: Path) -> tuple[float, float] | None:
+    """Read the inverse (backward) drive of an out.csv, as recorded by nesspy.
+
+    Returns the raw ``(inverse_drive, inverse_scheme)`` pair -- the drive on the
+    inactive → active reaction and the *number* of the scheme perturbing it, not
+    yet resolved onto an S-name (that is
+    :func:`~nesspy_analysis.schemes.inverse_scheme_from_hrc`, wrapped by
+    :func:`get_inverse_drive_and_scheme`).
+
+    Both values are read from the per-row ``inverse_drive`` / ``inverse_scheme``
+    columns that nesspy >= 1.10.1 writes after ``k``, falling back to the
+    ``# inverse_drive`` / ``# inverse_drive_scheme`` header entries (nesspy
+    >= 1.10.0 writes those with the rest of the merged simulation input, so a file
+    can state them without having the columns).
+
+    ``None`` means the file states neither, i.e. output from before the inverse
+    drive existed; those are read with the ``NO_INVERSE_DRIVE`` defaults.
+
+    Both values are simulation *inputs*, written unchanged into every row, so an
+    out.csv holding more than one value of either is inconsistent and raises
+    ``ValueError``.
+    """
+    df = pd.read_csv(file, comment="#", header=0)
+
+    if {"inverse_drive", "inverse_scheme"}.issubset(df.columns):
+        values: list[float] = []
+        for column in ("inverse_drive", "inverse_scheme"):
+            unique = np.unique(
+                np.round(pd.to_numeric(df[column], errors="coerce").dropna().values, 8)
+            )
+            if unique.size > 1:
+                raise ValueError(
+                    f"Inconsistent '{column}' within {file}: {sorted(unique)}"
+                )
+            if unique.size == 0:
+                # Columns present but no measurement rows -> nothing to read
+                # here; the header block may still state the values.
+                values = []
+                break
+            values.append(float(unique[0]))
+        if len(values) == 2:
+            return (values[0], values[1])
+
+    drive = _get_header_float(file, "inverse_drive")
+    scheme = _get_header_float(file, "inverse_drive_scheme")
+    if drive is None and scheme is None:
+        return None
+    if drive is None:
+        drive = NO_INVERSE_DRIVE
+    if scheme is None:
+        # nesspy's own default (Config: inverse_drive_scheme = 1.0, i.e. S1, the
+        # identity perturbation).
+        scheme = 1.0
+    return (drive, scheme)
+
+
+def get_inverse_drive_and_scheme(
+    file: Path, hrc: bool | None = None
+) -> tuple[float, str]:
+    """The inverse drive of one out.csv together with its canonical scheme.
+
+    Returns ``(drive_reverse, drive_scheme_reverse)`` as stored on
+    :class:`~nesspy_analysis.classes.Thermos`. Output that records no inverse
+    drive -- everything written before nesspy 1.10.1 -- reads as
+    ``(0.0, "S0")``: no drive on the backward reaction, so that channel is
+    undriven and nothing about such an analysis changes.
+
+    ``hrc`` may be passed when the caller has already read it (it decides whether
+    the scheme is applied at all, see
+    :func:`~nesspy_analysis.schemes.inverse_scheme_from_hrc`); otherwise it is
+    read from this file's header.
+    """
+    inverse = get_inverse_drive(file)
+    if inverse is None:
+        return (NO_INVERSE_DRIVE, NO_INVERSE_DRIVE_SCHEME)
+
+    drive, scheme_number = inverse
+    if hrc is None:
+        hrc_entries = get_hrc(file)
+        # A file with no hrc entries predates heterogeneous driving, so its
+        # driving is homogeneous by construction.
+        hrc = hrc_entries[0] if hrc_entries is not None else False
+    return (drive, inverse_scheme_from_hrc(hrc, scheme_number, drive))
+
+
+# Directories we have already reported as legacy, so a sweep over dozens of mu
+# subfolders prints one line per run instead of one per file.
+_LEGACY_NOTICES: set[Path] = set()
+
+
+def reset_legacy_notices() -> None:
+    """Forget which directories were already reported (used by the tests)."""
+    _LEGACY_NOTICES.clear()
+
+
+def notify_legacy_schemes(directory: Path, message: str) -> bool:
+    """Print ``message`` to stdout once per directory subtree.
+
+    A notice for a parent directory suppresses the notices of everything below
+    it, so ``DynamicalOrderDisorder`` reporting its whole run directory keeps
+    the individual per-mu folders quiet. Returns whether it printed.
+    """
+    directory = Path(directory).resolve()
+    if directory in _LEGACY_NOTICES:
+        return False
+    if any(parent in _LEGACY_NOTICES for parent in directory.parents):
+        return False
+    _LEGACY_NOTICES.add(directory)
+    print(message)
+    return True
+
+
+def describe_legacy_remap(
+    version: NesspyVersion,
+    hrc: bool | None = None,
+    hrc_method: float | None = None,
+    scheme: str | None = None,
+) -> str:
+    """One-line description of the scheme remapping applied to legacy output.
+
+    The concrete ``(hrc, hrc_method) -> scheme`` remapping is appended when it is
+    known; without it the message just states that the legacy catalogue is in use.
+    """
+    written_by = (
+        f"nesspy {version.version}"
+        + (f", released {version.release_date:%Y/%m/%d}" if version.release_date else "")
+        if version.version
+        else "an unversioned nesspy release"
+    )
+    rename = ".".join(str(v) for v in NESSPY_SCHEME_RENAME_VERSION)
+    message = (
+        f"written by {written_by}, i.e. before the scheme renaming in nesspy "
+        f"{rename} ({NESSPY_SCHEME_RENAME_DATE:%Y/%m/%d}). "
+    )
+    if scheme is None:
+        return message + "hrc_method is read with the legacy scheme catalogue"
+    return message + (
+        f"Remapped legacy hrc={hrc}, hrc_method={hrc_method} -> {scheme} "
+        f"(previously called {legacy_scheme_name(scheme)!r})"
+    )
+
+
+def report_legacy_run(directory: Path, files) -> bool:
+    """Announce once, for a whole run directory, that its out.csv files are legacy.
+
+    Called when a :class:`DynamicalOrderDisorder` is built so that the notice is
+    printed once for the run rather than once per mu subfolder (the notice for a
+    directory suppresses everything below it). Returns whether it printed.
+
+    Scheme resolution here is best-effort: an ``hrc_method`` this package cannot
+    map still gets a notice, and the ``NotImplementedError`` is raised later by
+    ``get_thermos_from_file()``, which is where it belongs.
+    """
+    legacy = [
+        (f, version)
+        for f, version in ((f, get_nesspy_version(f)) for f in files)
+        if version.legacy_schemes
+    ]
+    if not legacy:
+        return False
+
+    file, version = legacy[0]
+    hrc_entries = get_hrc(file)
+    hrc = hrc_method = scheme = None
+    if hrc_entries is not None:
+        hrc, hrc_method = hrc_entries
+        try:
+            scheme = scheme_from_hrc(hrc, hrc_method, legacy=True)
+        except NotImplementedError:
+            scheme = None
+
+    return notify_legacy_schemes(
+        directory,
+        f"[nesspy_analysis] Legacy nesspy output in {directory} "
+        f"({len(legacy)}/{len(files)} out.csv files): "
+        + describe_legacy_remap(version, hrc, hrc_method, scheme)
+        + ".",
+    )
+
+
+def report_legacy_output(file: Path, directory: Path | None = None) -> str | None:
+    """Announce, once per directory, that out.csv files there use legacy schemes.
+
+    Returns the canonical scheme the legacy ``(hrc, hrc_method)`` pair maps onto,
+    or ``None`` when ``file`` is not legacy output (or states no hrc entries, so
+    there is no scheme numbering to remap).
+    """
+    version = get_nesspy_version(file)
+    if not version.legacy_schemes:
+        return None
+
+    hrc_entries = get_hrc(file)
+    if hrc_entries is None:
+        return None
+
+    hrc, hrc_method = hrc_entries
+    scheme = scheme_from_hrc(hrc, hrc_method, legacy=True)
+    directory = Path(directory) if directory is not None else Path(file).parent
+    notify_legacy_schemes(
+        directory,
+        f"[nesspy_analysis] Legacy nesspy output in {directory}: "
+        + describe_legacy_remap(version, hrc, hrc_method, scheme)
+        + ".",
+    )
+    return scheme
+
+
 def read_csv(file: Path, n_samples: int=6, bootstrap: bool=True) -> tuple[pd.DataFrame, dict]:
     if not file.exists():
         raise ValueError(f"File {file} does not exist.")
@@ -166,14 +482,38 @@ def read_csv(file: Path, n_samples: int=6, bootstrap: bool=True) -> tuple[pd.Dat
     k = get_k(file)
     dmu = get_dmu(file)
 
+    # Driving-scheme provenance: legacy files (nesspy < 1.9.0) number their
+    # schemes with the old catalogue, so the (hrc, hrc_method) pair is remapped
+    # onto the canonical S0-S6 naming and the remapping is reported once per
+    # directory.
+    version = get_nesspy_version(file)
+    hrc_entries = get_hrc(file)
+    scheme = report_legacy_output(file)
+    if scheme is None:
+        # Either modern output or a file that states no hrc entries at all.
+        scheme = (
+            scheme_from_hrc(*hrc_entries, legacy=version.legacy_schemes)
+            if hrc_entries is not None
+            else None
+        )
+
+    # The inverse (backward) drive and its scheme, recorded by nesspy >= 1.10.1.
+    # Files without it read as (0.0, "S0"), i.e. an undriven backward reaction,
+    # which is what every data set analyzed before this existed already assumed.
+    drive_reverse, drive_scheme_reverse = get_inverse_drive_and_scheme(
+        file, hrc=hrc_entries[0] if hrc_entries is not None else None
+    )
+
     # Read the CSV file into a DataFrame
 
     try:
 
         data_points = get_data_point_from_out_file(file, n_samples, bootstrap=bootstrap)
 
-    except ValueError:
-        print(f"Error reading file {file}")
+    except ValueError as e:
+        # An empty out.csv (no measurement rows) leaves data_points unbound and
+        # cannot be analyzed; re-raise with context so callers can skip this mu.
+        raise ValueError(f"No usable data in file {file}: {e}") from e
 
     if data_points["rsw_check"].values.any() == False:
         raise ValueError(f"RSW values are not consistent in file {file}")
@@ -208,6 +548,14 @@ def read_csv(file: Path, n_samples: int=6, bootstrap: bool=True) -> tuple[pd.Dat
         "fres": fres,
         "k": k,
         "dmu": dmu,
+        # Provenance: which nesspy wrote the file, whether its hrc_method
+        # numbering is the legacy one, and the canonical scheme it maps onto.
+        "nesspy_version": version.version,
+        "legacy_schemes": version.legacy_schemes,
+        "scheme": scheme,
+        # Inverse (backward) drive; (0.0, "S0") for output that predates it.
+        "drive_reverse": drive_reverse,
+        "drive_scheme_reverse": drive_scheme_reverse,
     }
 
     return (data_points, header_info)

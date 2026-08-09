@@ -62,11 +62,15 @@ def sigmoid(x, L, x0, k, b):
     return b + L / (1 + np.exp(z))
 
 
-def fit_sigmoid(xdata, ydata, yerr=None):
+def fit_sigmoid(xdata, ydata, yerr=None, return_cov=False):
     """Fit a logistic to (x, y) and return popt = [L, x0, k, b].
 
     x0 is the inflection point. The initial slope sign is inferred from the
     data so both increasing and decreasing transitions converge.
+
+    With ``return_cov=True`` the ``(popt, pcov)`` pair is returned instead, where
+    ``pcov`` is ``curve_fit``'s parameter covariance matrix; ``sqrt(pcov[1, 1])``
+    is the statistical standard error on the inflection point x0.
     """
     xdata = np.asarray(xdata, dtype=float)
     ydata = np.asarray(ydata, dtype=float)
@@ -96,6 +100,8 @@ def fit_sigmoid(xdata, ydata, yerr=None):
             sigmoid, xdata, ydata, p0=p0, sigma=yerr,
             absolute_sigma=True, maxfev=100000,
         )
+    if return_cov:
+        return popt, pcov
     return popt
 
 

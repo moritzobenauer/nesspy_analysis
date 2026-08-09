@@ -51,7 +51,7 @@ def set_plot_defaults():
     mpl.rcParams["xtick.bottom"] = True
     mpl.rcParams["ytick.left"] = True
     mpl.rcParams["ytick.right"] = True
-    print("Plot defaults set.")
+    # print("Plot defaults set.")
 
 
 def blackout():
@@ -69,7 +69,7 @@ def blackout():
             "savefig.edgecolor": "black",
         }
     )
-    print("Blackout mode set.")
+    # print("Blackout mode set.")
 
 
 def whiteout():
@@ -87,4 +87,4 @@ def whiteout():
             "savefig.edgecolor": "white",
         }
     )
-    print("Whiteout mode set.")
+    # print("Whiteout mode set.")

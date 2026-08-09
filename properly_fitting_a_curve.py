@@ -25,9 +25,14 @@ analysis_2.analysis(
 mus = analysis_2.mu_fit_results["mu_cont"]
 fit = analysis_2.mu_fit_results["lorentzian_fit"]
 
-thermo = npa.Thermos(jhom=-3.5, jhet=-2.0, beta=1.0, fres=-20.0, k=0.0, dmu=0.0)
+# BUGFIX 2026-08-05 calculate_dphi() takes no `drivetype` argument -- the driving
+# scheme comes from Thermos.method. S0 (formerly "NODRIVE") is the default, so
+# the undriven branch is selected here explicitly.
+thermo = npa.Thermos(
+    jhom=-3.5, jhet=-2.0, beta=1.0, fres=-20.0, k=0.0, dmu=0.0, method="S0"
+)
 
-dphis = npa.calculate_dphi(mus, thermo, drivetype="NODRIVE")
+dphis = npa.calculate_dphi(mus, thermo)
 fit = analysis_2.mu_fit_results["lorentzian_fit"]
 dphis_discrete = npa.calculate_dphi(mu_discrete, thermo, drivetype="NODRIVE")
 
