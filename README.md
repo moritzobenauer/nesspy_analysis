@@ -113,6 +113,23 @@ Run directories are discovered as the grandparent of an `out.csv`, so trees of
 different depth are handled by the same code. Nothing is moved or renamed — the local
 directory stays a verbatim mirror of della, and the sync is strictly additive.
 
+## Viewing and comparing analyzed runs (`webapp/`)
+
+A read-only Streamlit viewer over the same cached pipeline output:
+
+```bash
+uv run streamlit run webapp/app.py
+```
+
+Three tabs: **Load data** (browse to a run directory and name it — blocked
+unless `order_disorder_analysis.csv` exists and is up to date), **Overview**
+(w(q)/lattice-plot status for one dataset plus the four interactive
+order-parameter/susceptibility/growth-speed/cluster-observable plots), and
+**Compare** (the same four plots overlaid across several datasets, plus a
+summary table). It never runs the analysis itself — run the pipeline above
+first. The loaded dataset list persists in `webapp/datasets.json` (gitignored,
+since it holds machine-local paths).
+
 ## Inspecting a run directory from the shell
 
 For simple questions about an `out.csv` — which nesspy version wrote it, how many
@@ -155,6 +172,37 @@ Pairing `head` with `tail` this way is what lets you attribute an error to a spe
 dataset.
 
 ## Changelog
+
+### 0.13.1
+
+- **Compact directory browser** (`webapp/directory_browser.py`): one toolbar row
+  (up / path / "Use this folder"), a filter box above 8 subfolders, and the
+  folder list in a fixed-height scroll box, so any directory costs the same
+  screen height. Run directories (📊) get a `＋` that picks them without
+  navigating in; hidden (dot) folders are no longer listed.
+- **Streamlined adding** (`webapp/tabs/tab_load_data.py`): browser and add panel
+  side by side, dataset name pre-filled from the folder name (suffixed `-2`,
+  `-3`, ... if taken) — adding is now ＋ then Add. The four `st.metric` status
+  tiles became one row of green/red badges.
+- **Plot fixes** (`webapp/plots_interactive.py`): all panels draw
+  `lines+markers` (panel (a)'s sigmoid fit is dotted to stay distinct); axis
+  titles are Unicode, not LaTeX — Streamlit serves Plotly without MathJax, so
+  `$\Delta\phi$` rendered as literal text; panel (d) draws ⟨r⟩ in the run's
+  colour hue-rotated 180° (`_complementary()`), y-axis titles tinted to match
+  for a single run; growth-speed log axis labels 1/2/5 per decade.
+
+### 0.13.0
+
+- **New Streamlit viewer** (`webapp/`, `uv run streamlit run webapp/app.py`):
+  read-only web UI over the existing analysis cache, three tabs -- load named
+  datasets via an in-app directory browser (gated on
+  `order_disorder_analysis.csv` being present and not stale), a per-dataset
+  overview (w(q)/lattice-plot status checkboxes + the 4-panel order
+  parameter/susceptibility/growth speed/cluster observables plot), and a
+  multi-dataset comparison (same 4 panels overlaid + a summary table). Plots
+  are interactive (Plotly, zoom/pan/legend-toggle per dataset). Never triggers
+  analysis itself. Dataset list persists in `webapp/datasets.json` (gitignored).
+- Added `streamlit`, `plotly` as dependencies.
 
 ### 0.12.3
 
