@@ -2,14 +2,32 @@
 
 from pathlib import Path
 
+import numpy as np
 import plotly.express as px
 import streamlit as st
 
 from webapp.analyzed_run import load_run, summarize
 from webapp.pipeline_status import compute_run_status, is_analyzed
-from webapp.plots_interactive import build_comparison_figure
+from webapp.plots_interactive import build_comparison_figure, minimum_growth_speed
 
 PALETTE = px.colors.qualitative.Plotly
+
+# The two positions of the growth-speed slider (panel (c)).
+ABSOLUTE = "absolute v"
+RELATIVE = "v / v_min"
+
+
+def _style_with_colors(table):
+    """Paint the `color` column with the colour it names, as a swatch.
+
+    The text is set to the same colour as the cell background so the hex code
+    itself disappears -- the column is there to tie a table row to a curve in
+    the figure, not to be read.
+    """
+    return table.style.map(
+        lambda hex_color: f"background-color: {hex_color}; color: {hex_color}",
+        subset=["color"],
+    )
 
 
 def render_compare_tab() -> None:
@@ -44,8 +62,41 @@ def render_compare_tab() -> None:
         st.warning("Fewer than two analyzed datasets remain after filtering; nothing to compare.")
         return
 
-    fig = build_comparison_figure(runs, title="Comparison")
-    st.plotly_chart(fig, width="stretch")
+    # Two-position slider for panel (c): absolute speeds, or every speed divided
+    # by the slowest one in the whole comparison (so that slowest point sits at
+    # exactly 1 and every other point reads as "x times faster").
+    mode = st.select_slider(
+        "Panel (c) growth speed",
+        options=[ABSOLUTE, RELATIVE],
+        value=ABSOLUTE,
+        key="compare_tab__speed_mode",
+        help=(
+            "Relative mode divides every growth speed by the smallest positive "
+            "growth speed across all compared datasets."
+        ),
+    )
+    v_min = minimum_growth_speed(runs)
+    normalize = mode == RELATIVE and np.isfinite(v_min)
+    if mode == RELATIVE and not np.isfinite(v_min):
+        st.warning("No positive growth speeds in this selection; showing absolute values.")
+
+    fig = build_comparison_figure(
+        runs,
+        title="Comparison",
+        growth_speed_reference=v_min if normalize else None,
+    )
+    st.plotly_chart(fig, width="stretch", theme=None)
+    if normalize:
+        st.caption(f"Panel (c) is normalized to v_min = {v_min:.4g} (lattice units).")
 
     st.subheader("Summary")
-    st.dataframe(summarize(runs), width="stretch")
+    table = summarize(runs)
+    if normalize:
+        # Same normalization as the plot, so the table can be read against it.
+        table.insert(
+            table.columns.get_loc("growth_speed_at_critical") + 1,
+            "growth_speed_at_critical_rel",
+            table["growth_speed_at_critical"] / v_min,
+        )
+    st.dataframe(_style_with_colors(table), width="stretch")
+    st.caption("The `color` column is the curve colour used for that dataset in the figure.")

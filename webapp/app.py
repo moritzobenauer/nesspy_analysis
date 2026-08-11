@@ -26,6 +26,25 @@ from webapp.tabs.tab_overview import render_overview_tab
 
 st.set_page_config(page_title="nesspy_analysis viewer", layout="wide")
 
+# A gradient cannot be expressed in .streamlit/config.toml (it only takes flat
+# colours), so it is injected as CSS here. The stops go deep navy -> dark blue
+# -> slate grey; `background-attachment: fixed` keeps it anchored to the
+# viewport so scrolling a long tab doesn't drag the gradient with it. The
+# endpoints match `backgroundColor` in .streamlit/config.toml, so anything this
+# rule doesn't reach still blends in.
+BACKGROUND_CSS = """
+<style>
+.stApp {
+    background: linear-gradient(155deg, #0a1020 0%, #111a2c 45%, #2b313d 100%);
+    background-attachment: fixed;
+}
+/* Streamlit's fixed top header would otherwise stamp a flat bar across the
+   top of the gradient. */
+header[data-testid="stHeader"] { background: transparent; }
+</style>
+"""
+st.markdown(BACKGROUND_CSS, unsafe_allow_html=True)
+
 if "datasets" not in st.session_state:
     st.session_state["datasets"] = load_registry()
 

@@ -1,0 +1,13 @@
+# Theme for the webapp/ Streamlit viewer (see webapp/app.py, which paints the
+# actual navy -> slate gradient on top of `backgroundColor` with CSS).
+#
+# The colours here have to agree with that gradient: Streamlit uses
+# `backgroundColor` for anything the gradient does not cover, and
+# `secondaryBackgroundColor` for the raised surfaces (the directory-browser
+# scroll box, code blocks, tables, widget fills) that sit on it.
+[theme]
+base = "dark"
+primaryColor = "#4c8dff"
+backgroundColor = "#0a1020"
+secondaryBackgroundColor = "#1c2230"
+textColor = "#e6e9ef"

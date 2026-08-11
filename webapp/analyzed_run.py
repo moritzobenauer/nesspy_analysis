@@ -94,6 +94,9 @@ def summarize(runs: list[AnalyzedRun]) -> pd.DataFrame:
         records.append(
             {
                 "label": run.label,
+                # Carried into the table so the Compare tab can paint a swatch
+                # tying each row to its curve in the figure.
+                "color": run.color,
                 "directory": run.path.name,
                 "nesspy_scheme": run.scheme,
                 "jhom": run.thermos.jhom,

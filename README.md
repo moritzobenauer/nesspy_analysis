@@ -173,6 +173,21 @@ dataset.
 
 ## Changelog
 
+### 0.13.2
+
+- **Dark gradient background** for the viewer: `.streamlit/config.toml` pins a
+  dark theme, `webapp/app.py` paints a navy → slate gradient (`.stApp`, CSS,
+  since config.toml only takes flat colours). Figures follow with the
+  `plotly_dark` template, a transparent paper so the gradient shows through,
+  and `theme=None` on both `st.plotly_chart` calls so Streamlit's own template
+  doesn't overwrite that. `_complementary()` now brightens (rather than darkens)
+  its result, which is what reads on the dark panel.
+- **Compare tab**: summary table gained a `color` column painted with each
+  dataset's curve colour; a two-position slider switches panel (c) between
+  absolute growth speeds and `v / v_min`, where `v_min` is the smallest positive
+  growth speed across all compared datasets (`minimum_growth_speed()`), which
+  also adds a `growth_speed_at_critical_rel` column to the table.
+
 ### 0.13.1
 
 - **Compact directory browser** (`webapp/directory_browser.py`): one toolbar row

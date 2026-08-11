@@ -60,4 +60,6 @@ def render_overview_tab() -> None:
         return
 
     fig = build_comparison_figure([run], title=dataset.name)
-    st.plotly_chart(fig, width="stretch")
+    # theme=None: keep the figure's own dark styling (webapp/plots_interactive.py)
+    # rather than letting Streamlit's Plotly template overwrite it.
+    st.plotly_chart(fig, width="stretch", theme=None)
