@@ -178,49 +178,34 @@ dataset.
 
 ## Changelog
 
-### 0.13.3
+### 0.13.4
 
-- **Gradient background fix** (`webapp/app.py`): the previous stops were nearly
-  the same colour for the first 45% of the page, so it read as flat. Now a
-  diagonal `#070c18 -> #111c33 -> #232c42 -> #414a5e` ramp plus a soft blue
-  corner glow, with `stAppViewContainer`/`stMain`/`stHeader` forced transparent
-  so no theme layer can cover it. Painted only when the dark theme is actually
-  active, with a warning otherwise -- `.streamlit/config.toml` is read from the
-  working directory at *server start*, so the app must be launched from the
-  repository root and restarted (a rerun is not enough) for it to apply.
+Viewer polish, collecting 0.13.1-0.13.4.
 
-### 0.13.2
-
-- **Dark gradient background** for the viewer: `.streamlit/config.toml` pins a
-  dark theme, `webapp/app.py` paints a navy → slate gradient (`.stApp`, CSS,
-  since config.toml only takes flat colours). Figures follow with the
-  `plotly_dark` template, a transparent paper so the gradient shows through,
-  and `theme=None` on both `st.plotly_chart` calls so Streamlit's own template
-  doesn't overwrite that. `_complementary()` now brightens (rather than darkens)
-  its result, which is what reads on the dark panel.
-- **Compare tab**: summary table gained a `color` column painted with each
-  dataset's curve colour; a two-position slider switches panel (c) between
-  absolute growth speeds and `v / v_min`, where `v_min` is the smallest positive
-  growth speed across all compared datasets (`minimum_growth_speed()`), which
-  also adds a `growth_speed_at_critical_rel` column to the table.
-
-### 0.13.1
-
-- **Compact directory browser** (`webapp/directory_browser.py`): one toolbar row
-  (up / path / "Use this folder"), a filter box above 8 subfolders, and the
-  folder list in a fixed-height scroll box, so any directory costs the same
-  screen height. Run directories (📊) get a `＋` that picks them without
-  navigating in; hidden (dot) folders are no longer listed.
-- **Streamlined adding** (`webapp/tabs/tab_load_data.py`): browser and add panel
-  side by side, dataset name pre-filled from the folder name (suffixed `-2`,
-  `-3`, ... if taken) — adding is now ＋ then Add. The four `st.metric` status
-  tiles became one row of green/red badges.
+- **Dark theme** (`.streamlit/config.toml`, `webapp/app.py`): diagonal
+  `#070c18 -> #111c33 -> #232c42 -> #414a5e` gradient plus a blue corner glow,
+  with `stAppViewContainer`/`stMain`/`stHeader` forced transparent. Painted only
+  when the dark theme is active, with a warning otherwise -- `config.toml` is
+  read from the working directory at *server start*, so launch the app from the
+  repository root and restart (a rerun is not enough). Figures use
+  `plotly_dark` + transparent paper + `theme=None`; `_complementary()`
+  brightens instead of darkening.
+- **Directory browser** (`webapp/directory_browser.py`): one toolbar row
+  (up / path / "Use this folder"), filter box, 8 subfolders in a fixed-height
+  scroll box, so any directory costs the same screen height. Run directories
+  (📊) get a `＋` that picks them without navigating in; dot folders hidden.
+- **Adding datasets** (`webapp/tabs/tab_load_data.py`): browser and add panel
+  side by side, name pre-filled from the folder name (suffixed `-2`, `-3`, ...
+  if taken); status tiles are now green/red badges.
+- **Compare tab** (`webapp/tabs/tab_compare.py`): summary table gained a `color`
+  swatch column; a checkbox switches panel (c) between absolute growth speeds
+  and `v / v_min` (`minimum_growth_speed()`, smallest positive speed across the
+  comparison), adding a `growth_speed_at_critical_rel` column.
 - **Plot fixes** (`webapp/plots_interactive.py`): all panels draw
-  `lines+markers` (panel (a)'s sigmoid fit is dotted to stay distinct); axis
-  titles are Unicode, not LaTeX — Streamlit serves Plotly without MathJax, so
-  `$\Delta\phi$` rendered as literal text; panel (d) draws ⟨r⟩ in the run's
-  colour hue-rotated 180° (`_complementary()`), y-axis titles tinted to match
-  for a single run; growth-speed log axis labels 1/2/5 per decade.
+  `lines+markers` (panel (a)'s sigmoid fit dotted); axis titles are Unicode, not
+  LaTeX — Streamlit serves Plotly without MathJax, so `$\Delta\phi$` rendered as
+  literal text; panel (d) draws ⟨r⟩ hue-rotated 180° from the run's colour with
+  matching tinted y-axis titles; growth-speed log axis labels 1/2/5 per decade.
 
 ### 0.13.0
 

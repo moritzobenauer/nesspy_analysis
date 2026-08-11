@@ -12,10 +12,6 @@ from webapp.plots_interactive import build_comparison_figure, minimum_growth_spe
 
 PALETTE = px.colors.qualitative.Plotly
 
-# The two positions of the growth-speed slider (panel (c)).
-ABSOLUTE = "absolute v"
-RELATIVE = "v / v_min"
-
 
 def _style_with_colors(table):
     """Paint the `color` column with the colour it names, as a swatch.
@@ -62,22 +58,23 @@ def render_compare_tab() -> None:
         st.warning("Fewer than two analyzed datasets remain after filtering; nothing to compare.")
         return
 
-    # Two-position slider for panel (c): absolute speeds, or every speed divided
-    # by the slowest one in the whole comparison (so that slowest point sits at
-    # exactly 1 and every other point reads as "x times faster").
-    mode = st.select_slider(
-        "Panel (c) growth speed",
-        options=[ABSOLUTE, RELATIVE],
-        value=ABSOLUTE,
-        key="compare_tab__speed_mode",
+    # Checkbox for panel (c): unchecked shows absolute speeds, checked divides
+    # every speed by the slowest one in the whole comparison (so that slowest
+    # point sits at exactly 1 and every other point reads as "x times faster").
+    # BUGFIX 2026-08-10 a two-position select_slider was an awkward control for
+    # a binary choice; a checkbox states the on/off nature directly.
+    want_relative = st.checkbox(
+        "Panel (c): relative growth speed (v / v_min)",
+        value=False,
+        key="compare_tab__speed_relative",
         help=(
-            "Relative mode divides every growth speed by the smallest positive "
-            "growth speed across all compared datasets."
+            "Divides every growth speed by the smallest positive growth speed "
+            "across all compared datasets."
         ),
     )
     v_min = minimum_growth_speed(runs)
-    normalize = mode == RELATIVE and np.isfinite(v_min)
-    if mode == RELATIVE and not np.isfinite(v_min):
+    normalize = want_relative and np.isfinite(v_min)
+    if want_relative and not np.isfinite(v_min):
         st.warning("No positive growth speeds in this selection; showing absolute values.")
 
     fig = build_comparison_figure(

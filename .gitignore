@@ -14,3 +14,6 @@ csv/
 
 ./2025/PAPER_ADDIDITIONS/*
 2025/PAPER_ADDIDITIONS/
+
+# Machine-local dataset list for webapp/ (absolute paths, e.g. /Volumes/2025/...)
+webapp/datasets.json
