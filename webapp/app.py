@@ -27,23 +27,53 @@ from webapp.tabs.tab_overview import render_overview_tab
 st.set_page_config(page_title="nesspy_analysis viewer", layout="wide")
 
 # A gradient cannot be expressed in .streamlit/config.toml (it only takes flat
-# colours), so it is injected as CSS here. The stops go deep navy -> dark blue
-# -> slate grey; `background-attachment: fixed` keeps it anchored to the
-# viewport so scrolling a long tab doesn't drag the gradient with it. The
-# endpoints match `backgroundColor` in .streamlit/config.toml, so anything this
-# rule doesn't reach still blends in.
-BACKGROUND_CSS = """
+# colours), so it is injected as CSS here. Two layers: a diagonal deep-navy ->
+# slate-grey ramp, plus a soft blue glow in the top-left corner that keeps the
+# dark end from looking like a flat block. `background-attachment: fixed`
+# anchors both to the viewport, so a long tab scrolls over the gradient instead
+# of dragging it along (and short tabs still show the full ramp).
+#
+# The rule is applied to every layer Streamlit stacks between <body> and the
+# page content, with the inner ones forced transparent: the theme paints a flat
+# `backgroundColor` on some of them depending on version, which would otherwise
+# cover the gradient completely.
+GRADIENT = (
+    "radial-gradient(1200px 800px at 8% -10%, rgba(70,130,255,0.22), transparent 62%), "
+    "linear-gradient(135deg, #070c18 0%, #111c33 32%, #232c42 62%, #414a5e 100%)"
+)
+BACKGROUND_CSS = f"""
 <style>
-.stApp {
-    background: linear-gradient(155deg, #0a1020 0%, #111a2c 45%, #2b313d 100%);
+.stApp {{
+    background-image: {GRADIENT};
     background-attachment: fixed;
-}
-/* Streamlit's fixed top header would otherwise stamp a flat bar across the
-   top of the gradient. */
-header[data-testid="stHeader"] { background: transparent; }
+    background-repeat: no-repeat;
+    background-size: cover;
+}}
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+[data-testid="stMainBlockContainer"],
+[data-testid="stBottom"],
+section.main,
+header[data-testid="stHeader"] {{
+    background: transparent !important;
+}}
 </style>
 """
-st.markdown(BACKGROUND_CSS, unsafe_allow_html=True)
+# The gradient only makes sense against the dark theme in
+# .streamlit/config.toml, and Streamlit reads that file from the *current
+# working directory* only. Launched from somewhere else it falls back to
+# whatever theme the browser asks for, so painting the dark gradient anyway
+# could put dark text on a dark page. Paint it only when the dark theme is
+# actually in force, and say why when it isn't. NOTE: config.toml is read once
+# at server start -- editing it needs a restart, not just a rerun.
+if st.get_option("theme.base") == "dark":
+    st.markdown(BACKGROUND_CSS, unsafe_allow_html=True)
+else:
+    st.warning(
+        "Start this app from the repository root (`uv run streamlit run "
+        "webapp/app.py`) so `.streamlit/config.toml` is picked up -- without "
+        "its dark theme the gradient background is skipped."
+    )
 
 if "datasets" not in st.session_state:
     st.session_state["datasets"] = load_registry()

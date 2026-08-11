@@ -130,6 +130,11 @@ summary table). It never runs the analysis itself — run the pipeline above
 first. The loaded dataset list persists in `webapp/datasets.json` (gitignored,
 since it holds machine-local paths).
 
+Start it **from the repository root**: Streamlit reads `.streamlit/config.toml`
+(the dark theme the gradient background and the plot colours are built for) from
+the working directory, once, at server start. Launched elsewhere — or left
+running across a change to that file — the app skips the gradient and says so.
+
 ## Inspecting a run directory from the shell
 
 For simple questions about an `out.csv` — which nesspy version wrote it, how many
@@ -172,6 +177,17 @@ Pairing `head` with `tail` this way is what lets you attribute an error to a spe
 dataset.
 
 ## Changelog
+
+### 0.13.3
+
+- **Gradient background fix** (`webapp/app.py`): the previous stops were nearly
+  the same colour for the first 45% of the page, so it read as flat. Now a
+  diagonal `#070c18 -> #111c33 -> #232c42 -> #414a5e` ramp plus a soft blue
+  corner glow, with `stAppViewContainer`/`stMain`/`stHeader` forced transparent
+  so no theme layer can cover it. Painted only when the dark theme is actually
+  active, with a warning otherwise -- `.streamlit/config.toml` is read from the
+  working directory at *server start*, so the app must be launched from the
+  repository root and restarted (a rerun is not enough) for it to apply.
 
 ### 0.13.2
 
